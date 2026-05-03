@@ -34,6 +34,7 @@ const benefitSchema = new mongoose.Schema(
 
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
     isActive: { type: Boolean, default: true },
+    isHidden: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

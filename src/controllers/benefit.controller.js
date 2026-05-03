@@ -4,16 +4,20 @@ const { createNotification } = require('../services/notifications');
 
 async function list(req, res, next) {
   try {
-    const { category, q } = req.query;
-    const filter = { organization: req.user.organization._id || req.user.organization, isActive: true };
+    const { category, q, page = 1, limit = 12 } = req.query;
+    const filter = { organization: req.user.organization._id || req.user.organization, isActive: true, isHidden: { $ne: true } };
     if (category && category !== 'all') filter.category = category;
     if (q) filter.$or = [
       { title: { $regex: q, $options: 'i' } },
       { businessName: { $regex: q, $options: 'i' } },
       { description: { $regex: q, $options: 'i' } },
     ];
-    const benefits = await Benefit.find(filter).sort({ createdAt: -1 });
-    res.json({ benefits });
+    const skip = (Number(page) - 1) * Number(limit);
+    const [benefits, total] = await Promise.all([
+      Benefit.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      Benefit.countDocuments(filter),
+    ]);
+    res.json({ benefits, hasMore: skip + benefits.length < total, total });
   } catch (err) {
     next(err);
   }
