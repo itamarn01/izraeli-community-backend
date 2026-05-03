@@ -1,21 +1,29 @@
 const Job = require('../models/Job');
+const User = require('../models/User');
 const { jobSchema } = require('../validation/schemas');
 const { createNotification } = require('../services/notifications');
+const { sendApplicationEmail } = require('../services/email');
 
 async function list(req, res, next) {
   try {
-    const { type, category, q } = req.query;
-    const filter = { organization: req.user.organization._id || req.user.organization, isActive: true };
+    const { type, category, q, page = 1, limit = 10 } = req.query;
+    const filter = { organization: req.user.organization._id || req.user.organization, isActive: true, isHidden: { $ne: true } };
     if (type && type !== 'all') filter.type = type;
     if (category && category !== 'all') filter.category = category;
     if (q) filter.$text = { $search: q };
 
-    const jobs = await Job.find(filter)
-      .select('-applications')
-      .sort({ createdAt: -1 })
-      .populate('postedBy', 'profile.firstName profile.lastName email');
+    const skip = (Number(page) - 1) * Number(limit);
+    const [jobs, total] = await Promise.all([
+      Job.find(filter)
+        .select('-applications')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate('postedBy', 'profile.firstName profile.lastName email'),
+      Job.countDocuments(filter),
+    ]);
 
-    res.json({ jobs });
+    res.json({ jobs, hasMore: skip + jobs.length < total, total });
   } catch (err) {
     next(err);
   }
@@ -89,7 +97,7 @@ async function remove(req, res, next) {
 async function apply(req, res, next) {
   try {
     const { isAnonymous = false, message = '' } = req.body;
-    const job = await Job.findById(req.params.id);
+    const job = await Job.findById(req.params.id).populate('postedBy', 'email profile.firstName profile.lastName');
     if (!job) return res.status(404).json({ message: 'משרה לא נמצאה' });
 
     const already = job.applications.find((a) => a.user.toString() === req.user._id.toString());
@@ -102,6 +110,24 @@ async function apply(req, res, next) {
       cvUrl: req.user.cvUrl || '',
     });
     await job.save();
+
+    // Email the job poster
+    if (job.postedBy?.email) {
+      const applicantName = isAnonymous
+        ? null
+        : [req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || req.user.email;
+
+      sendApplicationEmail({
+        to: job.postedBy.email,
+        jobTitle: job.title,
+        company: job.company,
+        applicant: applicantName,
+        message,
+        cvUrl: req.user.cvUrl || '',
+        isAnonymous: !!isAnonymous,
+      }).catch((err) => console.error('Failed to send application email:', err.message));
+    }
+
     res.status(201).json({ ok: true, applicationsCount: job.applications.length });
   } catch (err) {
     next(err);

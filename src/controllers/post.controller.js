@@ -5,12 +5,19 @@ const { createNotification } = require('../services/notifications');
 async function list(req, res, next) {
   try {
     const orgId = req.user.organization._id || req.user.organization;
-    const posts = await Post.find({ organization: orgId })
-      .sort({ createdAt: -1 })
-      .populate('author', 'profile.firstName profile.lastName avatarUrl')
-      .populate('comments.user', 'profile.firstName profile.lastName avatarUrl')
-      .limit(100);
-    res.json({ posts });
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+    const filter = { organization: orgId, isHidden: { $ne: true } };
+    const [posts, total] = await Promise.all([
+      Post.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate('author', 'profile.firstName profile.lastName avatarUrl')
+        .populate('comments.user', 'profile.firstName profile.lastName avatarUrl'),
+      Post.countDocuments(filter),
+    ]);
+    res.json({ posts, hasMore: skip + posts.length < total, total });
   } catch (err) {
     next(err);
   }
