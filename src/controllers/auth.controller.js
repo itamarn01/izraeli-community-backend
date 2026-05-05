@@ -41,7 +41,7 @@ async function register(req, res, next) {
       emailOtpExpires: new Date(Date.now() + 10 * 60 * 1000),
     });
     await user.save();
-    await sendOtpEmail(user.email, otp);
+    sendOtpEmail(user.email, otp).catch((err) => console.error('OTP email failed:', err.message));
 
     const token = signToken(user._id);
     res.status(201).json({ token, user: user.toSafeJSON(), nextStep: 'verify_email' });

@@ -74,6 +74,7 @@ async function update(req, res, next) {
     const data = jobSchema.partial().parse(req.body);
     Object.assign(job, data);
     await job.save();
+    await job.populate('postedBy', 'profile.firstName profile.lastName email');
     res.json({ job });
   } catch (err) {
     next(err);
