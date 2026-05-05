@@ -112,7 +112,7 @@ const jobSchema = z.object({
   location: z.string().optional(),
   type: z.enum(['full_time', 'part_time', 'freelance', 'internship', 'temporary']).default('full_time'),
   category: z.string().optional(),
-  description: z.string().trim().min(10),
+  description: z.string().trim().min(2),
   requirements: z.array(z.string()).default([]),
   salaryRange: z.string().optional(),
   contactEmail: z.string().email().optional().or(z.literal('')),
