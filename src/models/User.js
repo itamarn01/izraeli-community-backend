@@ -32,6 +32,10 @@ const profileSchema = new mongoose.Schema(
       type: String,
       enum: ['bachelors', 'masters', 'doctorate', 'other'],
     },
+    gedud: {
+      type: String,
+      enum: ['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול'],
+    },
     children: { type: [childSchema], default: [] },
   },
   { _id: false }

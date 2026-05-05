@@ -60,6 +60,7 @@ const questionnaireSchema = z.object({
   maritalStatus: z.enum(['single', 'married', 'common_law', 'in_relationship', 'divorced', 'other']),
   employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']),
   studentLevel: z.enum(['bachelors', 'masters', 'doctorate', 'other']).optional(),
+  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול'], { required_error: 'נא לבחור גדוד' }),
   children: z.array(childSchema).default([]),
 });
 
@@ -77,6 +78,7 @@ const updateProfileSchema = z.object({
     .optional(),
   employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']).optional(),
   studentLevel: z.enum(['bachelors', 'masters', 'doctorate', 'other']).optional().nullable(),
+  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול']).optional(),
   children: z.array(childSchema).optional(),
 });
 
