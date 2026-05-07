@@ -35,6 +35,8 @@ router.post('/upload/image', imageUpload.single('image'), async (req, res, next)
 router.get('/dashboard', stats.dashboard);
 
 // --- Users ---
+router.get('/users/export', users.exportUsers);
+router.get('/users/deleted', users.listDeletedAccounts);
 router.get('/users', users.list);
 router.get('/users/:id', users.getOne);
 router.patch('/users/:id', users.update);

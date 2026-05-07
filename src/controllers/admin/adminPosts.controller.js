@@ -37,8 +37,8 @@ async function list(req, res, next) {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
-        .populate('author', 'email profile.firstName profile.lastName profile.phone')
-        .populate('comments.user', 'email profile.firstName profile.lastName')
+        .populate('author', 'email profile.firstName profile.lastName profile.phone avatarUrl')
+        .populate('comments.user', 'email profile.firstName profile.lastName avatarUrl')
         .populate('organization', 'name code'),
       Post.countDocuments(filter),
     ]);
@@ -79,7 +79,7 @@ async function deleteComment(req, res, next) {
     post.comments = post.comments.filter((c) => c._id.toString() !== commentId);
     if (post.comments.length === before) return res.status(404).json({ message: 'תגובה לא נמצאה' });
     await post.save();
-    const populated = await post.populate('comments.user', 'email profile.firstName profile.lastName');
+    const populated = await post.populate('comments.user', 'email profile.firstName profile.lastName avatarUrl');
     res.json({ post: populated });
   } catch (err) {
     next(err);

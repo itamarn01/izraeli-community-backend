@@ -67,6 +67,7 @@ const userSchema = new mongoose.Schema(
 
     avatarUrl: { type: String, default: '' },
     cvUrl: { type: String, default: '' },
+    termsAcceptedAt: { type: Date },
   },
   { timestamps: true }
 );
