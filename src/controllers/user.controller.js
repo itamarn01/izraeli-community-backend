@@ -1,7 +1,11 @@
 const User = require('../models/User');
+const Post = require('../models/Post');
+const Job = require('../models/Job');
+const DeletedAccount = require('../models/DeletedAccount');
 const { generateOtp } = require('../utils/token');
 const { sendOtpEmail } = require('../services/email');
 const { updateProfileSchema, changeEmailSchema, verifyNewEmailSchema } = require('../validation/schemas');
+const { uploadImageBuffer } = require('../services/cloudinary');
 
 async function updateProfile(req, res, next) {
   try {
@@ -61,7 +65,8 @@ async function verifyNewEmail(req, res, next) {
 async function uploadCv(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ message: 'לא נמצא קובץ' });
-    const cvUrl = `/uploads/${req.file.filename}`;
+    const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+    const cvUrl = `${baseUrl}/uploads/${req.file.filename}`;
     req.user.cvUrl = cvUrl;
     await req.user.save();
     res.json({ cvUrl });
@@ -70,4 +75,66 @@ async function uploadCv(req, res, next) {
   }
 }
 
-module.exports = { updateProfile, requestEmailChange, verifyNewEmail, uploadCv };
+async function changePassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ message: 'חסרים שדות' });
+    if (newPassword.length < 8)
+      return res.status(400).json({ message: 'הסיסמה החדשה חייבת להכיל לפחות 8 תווים' });
+
+    const user = await User.findById(req.user._id).select('+password');
+    const ok = await user.comparePassword(currentPassword);
+    if (!ok) return res.status(400).json({ message: 'הסיסמה הנוכחית שגויה' });
+
+    user.password = newPassword;
+    await user.save();
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteAccount(req, res, next) {
+  try {
+    const user = req.user;
+    const fullName = [user.profile?.firstName, user.profile?.lastName].filter(Boolean).join(' ');
+
+    await Promise.all([
+      Post.deleteMany({ author: user._id }),
+      Job.deleteMany({ postedBy: user._id }),
+      Post.updateMany({ 'comments.user': user._id }, { $pull: { comments: { user: user._id } } }),
+      Job.updateMany({ 'applications.user': user._id }, { $pull: { applications: { user: user._id } } }),
+    ]);
+
+    await DeletedAccount.create({ email: user.email, fullName, organization: user.organization });
+    await user.deleteOne();
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function acceptTerms(req, res, next) {
+  try {
+    req.user.termsAcceptedAt = new Date();
+    await req.user.save();
+    res.json({ user: req.user.toSafeJSON() });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function uploadAvatar(req, res, next) {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'לא נמצא קובץ' });
+    const result = await uploadImageBuffer(req.file.buffer, 'izraeli-community/avatars');
+    req.user.avatarUrl = result.secure_url;
+    await req.user.save();
+    res.json({ avatarUrl: result.secure_url });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { updateProfile, requestEmailChange, verifyNewEmail, uploadCv, uploadAvatar, changePassword, deleteAccount, acceptTerms };

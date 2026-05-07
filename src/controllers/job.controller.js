@@ -6,11 +6,13 @@ const { sendApplicationEmail } = require('../services/email');
 
 async function list(req, res, next) {
   try {
-    const { type, category, q, page = 1, limit = 10 } = req.query;
+    const { type, category, q, page = 1, limit = 10, mine, applied } = req.query;
     const filter = { organization: req.user.organization._id || req.user.organization, isActive: true, isHidden: { $ne: true } };
     if (type && type !== 'all') filter.type = type;
     if (category && category !== 'all') filter.category = category;
     if (q) filter.$text = { $search: q };
+    if (mine === 'true') filter.postedBy = req.user._id;
+    if (applied === 'true') filter['applications.user'] = req.user._id;
 
     const skip = (Number(page) - 1) * Number(limit);
     const [jobs, total] = await Promise.all([

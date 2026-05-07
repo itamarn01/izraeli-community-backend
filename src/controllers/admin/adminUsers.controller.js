@@ -3,6 +3,7 @@ const { z } = require('zod');
 const User = require('../../models/User');
 const Post = require('../../models/Post');
 const Job = require('../../models/Job');
+const DeletedAccount = require('../../models/DeletedAccount');
 const { sendAdminMessage, sendPasswordResetByAdmin } = require('../../services/email');
 
 const messageSchema = z.object({
@@ -36,23 +37,33 @@ function generateRandomPassword() {
   return crypto.randomBytes(6).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) + 'A1!';
 }
 
+function buildFilter({ q, organization, isEmailVerified, role, gedud, employmentStatus, gender, maritalStatus, city }) {
+  const filter = {};
+  if (organization) filter.organization = organization;
+  if (role) filter.role = role;
+  if (isEmailVerified === 'true') filter.isEmailVerified = true;
+  if (isEmailVerified === 'false') filter.isEmailVerified = false;
+  if (gedud) filter['profile.gedud'] = gedud;
+  if (employmentStatus) filter['profile.employmentStatus'] = employmentStatus;
+  if (gender) filter['profile.gender'] = gender;
+  if (maritalStatus) filter['profile.maritalStatus'] = maritalStatus;
+  if (city) filter['profile.address.city'] = new RegExp(city, 'i');
+  if (q) {
+    const re = new RegExp(q, 'i');
+    filter.$or = [
+      { email: re },
+      { 'profile.firstName': re },
+      { 'profile.lastName': re },
+      { 'profile.phone': re },
+    ];
+  }
+  return filter;
+}
+
 async function list(req, res, next) {
   try {
-    const { q, organization, isEmailVerified, role, page = 1, limit = 25 } = req.query;
-    const filter = {};
-    if (organization) filter.organization = organization;
-    if (role) filter.role = role;
-    if (isEmailVerified === 'true') filter.isEmailVerified = true;
-    if (isEmailVerified === 'false') filter.isEmailVerified = false;
-    if (q) {
-      const re = new RegExp(q, 'i');
-      filter.$or = [
-        { email: re },
-        { 'profile.firstName': re },
-        { 'profile.lastName': re },
-        { 'profile.phone': re },
-      ];
-    }
+    const { q, organization, isEmailVerified, role, gedud, employmentStatus, gender, maritalStatus, city, page = 1, limit = 25 } = req.query;
+    const filter = buildFilter({ q, organization, isEmailVerified, role, gedud, employmentStatus, gender, maritalStatus, city });
 
     const skip = (Number(page) - 1) * Number(limit);
     const [users, total] = await Promise.all([
@@ -61,6 +72,49 @@ async function list(req, res, next) {
     ]);
 
     res.json({ users, hasMore: skip + users.length < total, total });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function exportUsers(req, res, next) {
+  try {
+    const { q, organization, isEmailVerified, role, gedud, employmentStatus, gender, maritalStatus, city } = req.query;
+    const filter = buildFilter({ q, organization, isEmailVerified, role, gedud, employmentStatus, gender, maritalStatus, city });
+
+    const users = await User.find(filter).sort({ createdAt: -1 }).populate('organization', 'name');
+
+    const GENDER_HE = { male: 'זכר', female: 'נקבה', other: 'אחר' };
+    const MARITAL_HE = { single: 'רווק/ה', married: 'נשוי/אה', common_law: 'ידוע/ה בציבור', in_relationship: 'בזוגיות', divorced: 'גרוש/ה', other: 'אחר' };
+    const EMPLOY_HE = { employee: 'שכיר/ה', self_employed: 'עצמאי/ת', combined: 'משולב', not_working: 'לא עובד/ת', student: 'סטודנט/ית' };
+
+    const headers = ['שם פרטי','שם משפחה','מייל','טלפון','גדוד','מגדר','מצב משפחתי','תעסוקה','עיר','רחוב','ילדים','ארגון','תפקיד','מאומת','נוצר'];
+    const toCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = users.map((u) => [
+      u.profile?.firstName || '',
+      u.profile?.lastName || '',
+      u.email,
+      u.profile?.phone || '',
+      u.profile?.gedud || '',
+      GENDER_HE[u.profile?.gender] || '',
+      MARITAL_HE[u.profile?.maritalStatus] || '',
+      EMPLOY_HE[u.profile?.employmentStatus] || '',
+      u.profile?.address?.city || '',
+      u.profile?.address?.street || '',
+      u.profile?.children?.length ?? 0,
+      u.organization?.name || '',
+      u.role === 'admin' ? 'מנהל' : 'חבר',
+      u.isEmailVerified ? 'כן' : 'לא',
+      new Date(u.createdAt).toLocaleDateString('he-IL'),
+    ].map(toCell).join(','));
+
+    const csv = '﻿' + [headers.map(toCell).join(','), ...rows].join('\n');
+
+    res.set({
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="users.csv"',
+    });
+    res.send(csv);
   } catch (err) {
     next(err);
   }
@@ -164,4 +218,18 @@ async function sendMessage(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, update, remove, resetPassword, sendMessage };
+async function listDeletedAccounts(req, res, next) {
+  try {
+    const { page = 1, limit = 25 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+    const [accounts, total] = await Promise.all([
+      DeletedAccount.find().sort({ deletedAt: -1 }).skip(skip).limit(Number(limit)).populate('organization', 'name'),
+      DeletedAccount.countDocuments(),
+    ]);
+    res.json({ accounts, hasMore: skip + accounts.length < total, total });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts };
