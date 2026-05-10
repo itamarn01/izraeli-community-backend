@@ -34,6 +34,15 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(8, 'סיסמה חייבת להכיל לפחות 8 תווים'),
 });
 
+const loginOtpRequestSchema = z.object({
+  email: z.string().email('כתובת מייל לא תקינה'),
+});
+
+const loginOtpVerifySchema = z.object({
+  email: z.string().email(),
+  otp: z.string().regex(/^\d{6}$/, 'קוד לא תקין'),
+});
+
 const changeEmailSchema = z.object({
   newEmail: z.string().email('כתובת מייל לא תקינה'),
 });
@@ -143,6 +152,8 @@ module.exports = {
   loginSchema,
   verifyOtpSchema,
   resendOtpSchema,
+  loginOtpRequestSchema,
+  loginOtpVerifySchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   changeEmailSchema,

@@ -8,6 +8,8 @@ const {
   loginSchema,
   verifyOtpSchema,
   resendOtpSchema,
+  loginOtpRequestSchema,
+  loginOtpVerifySchema,
   questionnaireSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -167,6 +169,54 @@ async function resetPassword(req, res, next) {
   }
 }
 
+async function requestLoginOtp(req, res, next) {
+  try {
+    const { email } = loginOtpRequestSchema.parse(req.body);
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (user && user.isEmailVerified) {
+      const otp = generateOtp();
+      user.loginOtp = otp;
+      user.loginOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+      await user.save();
+      sendOtpEmail(
+        user.email,
+        otp,
+        'קוד כניסה — קהילת חטיבת יזרעאלי',
+        'קוד הכניסה שלך',
+      ).catch((err) => console.error('Login OTP email failed:', err.message));
+    }
+    // Always return same response to prevent user enumeration
+    res.json({ message: 'אם הכתובת קיימת במערכת, ישלח קוד כניסה' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function verifyLoginOtp(req, res, next) {
+  try {
+    const { email, otp } = loginOtpVerifySchema.parse(req.body);
+    const user = await User.findOne({ email: email.toLowerCase() })
+      .select('+loginOtp +loginOtpExpires')
+      .populate('organization');
+    if (!user || !user.isEmailVerified)
+      return res.status(401).json({ message: 'קוד לא תקין' });
+    if (!user.loginOtp || !user.loginOtpExpires || user.loginOtpExpires < new Date())
+      return res.status(400).json({ message: 'הקוד פג תוקף, יש לבקש קוד חדש' });
+    if (user.loginOtp !== otp)
+      return res.status(400).json({ message: 'קוד לא תקין' });
+
+    user.loginOtp = undefined;
+    user.loginOtpExpires = undefined;
+    await user.save();
+
+    const token = signToken(user._id);
+    const nextStep = user.isProfileComplete ? 'dashboard' : 'questionnaire';
+    res.json({ token, user: user.toSafeJSON(), nextStep });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function me(req, res) {
   res.json({ user: req.user.toSafeJSON ? req.user.toSafeJSON() : req.user });
 }
@@ -177,6 +227,8 @@ module.exports = {
   verifyOtp,
   resendOtp,
   login,
+  requestLoginOtp,
+  verifyLoginOtp,
   submitQuestionnaire,
   forgotPassword,
   resetPassword,
