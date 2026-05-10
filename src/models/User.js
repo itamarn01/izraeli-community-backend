@@ -57,6 +57,10 @@ const userSchema = new mongoose.Schema(
     resetPasswordOtp: { type: String, select: false },
     resetPasswordOtpExpires: { type: Date, select: false },
 
+    // Passwordless login OTP
+    loginOtp: { type: String, select: false },
+    loginOtpExpires: { type: Date, select: false },
+
     // Pending email change (verified by OTP sent to new address)
     pendingEmail: { type: String, select: false },
     pendingEmailOtp: { type: String, select: false },
@@ -93,6 +97,8 @@ userSchema.methods.toSafeJSON = function () {
   delete obj.pendingEmail;
   delete obj.pendingEmailOtp;
   delete obj.pendingEmailOtpExpires;
+  delete obj.loginOtp;
+  delete obj.loginOtpExpires;
   return obj;
 };
 
