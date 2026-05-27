@@ -56,12 +56,21 @@ async function bootstrap(req, res, next) {
       emailOtpExpires: new Date(Date.now() + 10 * 60 * 1000),
     });
     await admin.save();
-    await sendOtpEmail(admin.email, otp, 'אימות מייל מנהל — קהילת חטיבת יזרעאלי', 'אימות חשבון מנהל');
+    let emailSent = true;
+    try {
+      await sendOtpEmail(admin.email, otp, 'אימות מייל מנהל — קהילת חטיבת יזרעאלי', 'אימות חשבון מנהל');
+    } catch (emailErr) {
+      console.error('[bootstrap] שגיאה בשליחת מייל OTP:', emailErr.message);
+      emailSent = false;
+    }
 
     res.status(201).json({
-      message: 'חשבון נוצר. נשלח קוד אימות למייל',
+      message: emailSent
+        ? 'חשבון נוצר. נשלח קוד אימות למייל'
+        : 'חשבון נוצר אך שליחת המייל נכשלה — ניתן לשלוח שוב מעמוד האימות',
       username: admin.username,
       nextStep: 'verify_email',
+      emailSent,
     });
   } catch (err) {
     next(err);
@@ -83,8 +92,19 @@ async function login(req, res, next) {
       admin.emailOtp = otp;
       admin.emailOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
       await admin.save();
-      await sendOtpEmail(admin.email, otp, 'אימות מייל מנהל — קהילת חטיבת יזרעאלי', 'אימות חשבון מנהל');
-      return res.json({ nextStep: 'verify_email', username: admin.username, message: 'נשלח קוד אימות למייל' });
+      let emailSentOnLogin = true;
+      try {
+        await sendOtpEmail(admin.email, otp, 'אימות מייל מנהל — קהילת חטיבת יזרעאלי', 'אימות חשבון מנהל');
+      } catch (emailErr) {
+        console.error('[login] שגיאה בשליחת מייל OTP:', emailErr.message);
+        emailSentOnLogin = false;
+      }
+      return res.json({
+        nextStep: 'verify_email',
+        username: admin.username,
+        message: emailSentOnLogin ? 'נשלח קוד אימות למייל' : 'שליחת המייל נכשלה — ניתן לשלוח שוב מעמוד האימות',
+        emailSent: emailSentOnLogin,
+      });
     }
 
     admin.lastLoginAt = new Date();
@@ -132,8 +152,17 @@ async function resendOtp(req, res, next) {
     admin.emailOtp = otp;
     admin.emailOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await admin.save();
-    await sendOtpEmail(admin.email, otp, 'אימות מייל מנהל — קהילת חטיבת יזרעאלי', 'אימות חשבון מנהל');
-    res.json({ message: 'נשלח קוד חדש למייל' });
+    let emailSentOnResend = true;
+    try {
+      await sendOtpEmail(admin.email, otp, 'אימות מייל מנהל — קהילת חטיבת יזרעאלי', 'אימות חשבון מנהל');
+    } catch (emailErr) {
+      console.error('[resendOtp] שגיאה בשליחת מייל OTP:', emailErr.message);
+      emailSentOnResend = false;
+    }
+    res.json({
+      message: emailSentOnResend ? 'נשלח קוד חדש למייל' : 'שליחת המייל נכשלה — בדוק את הגדרות ה-SMTP בשרת',
+      emailSent: emailSentOnResend,
+    });
   } catch (err) {
     next(err);
   }
