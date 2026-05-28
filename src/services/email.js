@@ -1,22 +1,15 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-let transporter = null;
+let client = null;
 
-function getTransporter() {
-  if (transporter) return transporter;
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_HOST || !SMTP_USER) return null;
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT) || 587,
-    secure: Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-  });
-  return transporter;
+function getClient() {
+  if (client) return client;
+  if (!process.env.RESEND_API_KEY) return null;
+  client = new Resend(process.env.RESEND_API_KEY);
+  return client;
 }
+
+const FROM = () => process.env.RESEND_FROM || 'onboarding@resend.dev';
 
 async function sendOtpEmail(
   to,
@@ -34,17 +27,12 @@ async function sendOtpEmail(
       </div>
     </div>`;
 
-  const t = getTransporter();
-  if (!t) {
+  const c = getClient();
+  if (!c) {
     console.log(`[DEV] OTP for ${to}: ${otp}`);
     return { dev: true };
   }
-  return t.sendMail({
-    from: process.env.SMTP_FROM || 'noreply@izraeli.org.il',
-    to,
-    subject,
-    html,
-  });
+  return c.emails.send({ from: FROM(), to, subject, html });
 }
 
 async function sendApplicationEmail({ to, jobTitle, company, applicant, message, cvUrl, isAnonymous }) {
@@ -76,13 +64,13 @@ async function sendApplicationEmail({ to, jobTitle, company, applicant, message,
       </div>
     </div>`;
 
-  const t = getTransporter();
-  if (!t) {
+  const c = getClient();
+  if (!c) {
     console.log(`[DEV] Application email to ${to}: ${applicantName} applied for ${jobTitle}`);
     return { dev: true };
   }
-  return t.sendMail({
-    from: process.env.SMTP_FROM || 'noreply@izraeli.org.il',
+  return c.emails.send({
+    from: FROM(),
     to,
     subject: `מועמדות חדשה: ${jobTitle} — קהילת חטיבת יזרעאלי`,
     html,
@@ -101,13 +89,13 @@ async function sendAdminMessage({ to, subject, message, adminName }) {
       </div>
     </div>`;
 
-  const t = getTransporter();
-  if (!t) {
+  const c = getClient();
+  if (!c) {
     console.log(`[DEV] Admin message to ${to}: ${subject}`);
     return { dev: true };
   }
-  return t.sendMail({
-    from: process.env.SMTP_FROM || 'noreply@izraeli.org.il',
+  return c.emails.send({
+    from: FROM(),
     to,
     subject: `${subject} — קהילת חטיבת יזרעאלי`,
     html,
@@ -126,13 +114,13 @@ async function sendPasswordResetByAdmin({ to, newPassword, adminName }) {
       </div>
     </div>`;
 
-  const t = getTransporter();
-  if (!t) {
+  const c = getClient();
+  if (!c) {
     console.log(`[DEV] Password reset for ${to}: ${newPassword}`);
     return { dev: true };
   }
-  return t.sendMail({
-    from: process.env.SMTP_FROM || 'noreply@izraeli.org.il',
+  return c.emails.send({
+    from: FROM(),
     to,
     subject: 'איפוס סיסמה — קהילת חטיבת יזרעאלי',
     html,
