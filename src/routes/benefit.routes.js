@@ -5,6 +5,7 @@ const { requireAuth, requireVerified, requireProfile, requireAdmin } = require('
 router.use(requireAuth, requireVerified, requireProfile);
 
 router.get('/', ctrl.list);
+router.post('/suggest', ctrl.suggest);
 router.get('/:id', ctrl.getOne);
 router.post('/', requireAdmin, ctrl.create);
 router.patch('/:id', requireAdmin, ctrl.update);

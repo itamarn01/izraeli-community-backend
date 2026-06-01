@@ -1,5 +1,6 @@
 const Post = require('../../models/Post');
 const User = require('../../models/User');
+const { createNotification } = require('../../services/notifications');
 
 async function findUserIdsByQuery(query) {
   if (!query) return null;
@@ -86,4 +87,53 @@ async function deleteComment(req, res, next) {
   }
 }
 
-module.exports = { list, toggleHide, remove, deleteComment };
+async function compose(req, res, next) {
+  try {
+    const { content, imageUrl, organization, adminDisplayName } = req.body;
+    if (!content?.trim()) return res.status(400).json({ message: 'תוכן נדרש' });
+    if (!organization) return res.status(400).json({ message: 'יש לבחור ארגון' });
+
+    const post = await Post.create({
+      content: content.trim(),
+      imageUrl: imageUrl || '',
+      organization,
+      isAdminPost: true,
+      adminDisplayName: adminDisplayName?.trim() || 'הנהלה',
+    });
+
+    await createNotification({
+      organization,
+      type: 'post',
+      title: `הודעת הנהלה מאת ${adminDisplayName?.trim() || 'הנהלה'}`,
+      body: content.trim().slice(0, 100),
+      resourceId: post._id,
+    });
+
+    res.status(201).json({ post });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function adminComment(req, res, next) {
+  try {
+    const { text, adminDisplayName } = req.body;
+    if (!text?.trim()) return res.status(400).json({ message: 'תוכן תגובה נדרש' });
+
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: 'פוסט לא נמצא' });
+
+    post.comments.push({
+      text: text.trim(),
+      isAdminComment: true,
+      adminDisplayName: adminDisplayName?.trim() || 'הנהלה',
+    });
+    await post.save();
+    const populated = await post.populate('comments.user', 'profile.firstName profile.lastName avatarUrl');
+    res.status(201).json({ comments: populated.comments });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, toggleHide, remove, deleteComment, compose, adminComment };
