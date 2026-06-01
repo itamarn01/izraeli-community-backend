@@ -6,6 +6,7 @@ const orgs = require('../controllers/admin/adminOrgs.controller');
 const jobs = require('../controllers/admin/adminJobs.controller');
 const posts = require('../controllers/admin/adminPosts.controller');
 const benefits = require('../controllers/admin/adminBenefits.controller');
+const suggestions = require('../controllers/admin/adminBenefitSuggestions.controller');
 const { requireAdminPanel } = require('../middleware/adminAuth');
 const { imageUpload } = require('../middleware/upload');
 const { uploadImageBuffer } = require('../services/cloudinary');
@@ -58,9 +59,16 @@ router.delete('/jobs/:id', jobs.remove);
 
 // --- Posts ---
 router.get('/posts', posts.list);
+router.post('/posts/compose', posts.compose);
 router.post('/posts/:id/toggle-hide', posts.toggleHide);
+router.post('/posts/:id/admin-comment', posts.adminComment);
 router.delete('/posts/:id', posts.remove);
 router.delete('/posts/:id/comments/:commentId', posts.deleteComment);
+
+// --- Benefit Suggestions ---
+router.get('/benefit-suggestions', suggestions.list);
+router.patch('/benefit-suggestions/:id/status', suggestions.updateStatus);
+router.delete('/benefit-suggestions/:id', suggestions.remove);
 
 // --- Benefits ---
 router.get('/benefits', benefits.list);

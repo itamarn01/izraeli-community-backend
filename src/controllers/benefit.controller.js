@@ -1,6 +1,8 @@
 const Benefit = require('../models/Benefit');
+const BenefitSuggestion = require('../models/BenefitSuggestion');
 const { benefitSchema } = require('../validation/schemas');
 const { createNotification } = require('../services/notifications');
+const { sendAdminMessage } = require('../services/email');
 
 async function list(req, res, next) {
   try {
@@ -74,4 +76,36 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove };
+async function suggest(req, res, next) {
+  try {
+    const { businessName, description, contactName, contactPhone, website } = req.body;
+    if (!businessName?.trim() || !description?.trim()) {
+      return res.status(400).json({ message: 'שם עסק ותיאור הם שדות חובה' });
+    }
+    const orgId = req.user.organization._id || req.user.organization;
+    const submitterName = [req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || req.user.email;
+
+    const suggestion = await BenefitSuggestion.create({
+      organization: orgId,
+      submittedBy: req.user._id,
+      businessName: businessName.trim(),
+      description: description.trim(),
+      contactName: contactName?.trim() || '',
+      contactPhone: contactPhone?.trim() || '',
+      website: website?.trim() || '',
+    });
+
+    sendAdminMessage({
+      to: 'community.izraeli@gmail.com',
+      subject: `הצעת הטבה חדשה: ${businessName.trim()}`,
+      message: `הוגשה הצעת הטבה חדשה:\n\nעסק: ${businessName.trim()}\nתיאור: ${description.trim()}${contactName ? `\nשם איש קשר: ${contactName}` : ''}${contactPhone ? `\nטלפון: ${contactPhone}` : ''}${website ? `\nאתר: ${website}` : ''}\n\nהוגש על ידי: ${submitterName}`,
+      adminName: 'מערכת קהילת יזרעאלי',
+    }).catch((err) => console.error('[suggest] email failed:', err.message));
+
+    res.status(201).json({ suggestion });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, create, update, remove, suggest };
