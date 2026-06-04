@@ -63,13 +63,16 @@ const questionnaireSchema = z.object({
   address: z.object({
     city: z.string().trim().min(1, 'נדרשת עיר'),
     street: z.string().trim().min(1, 'נדרש רחוב'),
+    houseNumber: z.string().trim().optional().or(z.literal('')),
+    apartment: z.string().trim().optional().or(z.literal('')),
   }),
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'תאריך לידה לא תקין' }) }),
   gender: z.enum(['male', 'female', 'other']),
   maritalStatus: z.enum(['single', 'married', 'common_law', 'in_relationship', 'divorced', 'other']),
   employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']),
   studentLevel: z.enum(['bachelors', 'masters', 'doctorate', 'other']).optional(),
-  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול'], { required_error: 'נא לבחור גדוד' }),
+  selfEmployedBusiness: z.string().trim().optional().or(z.literal('')),
+  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה'], { required_error: 'נא לבחור גדוד' }),
   children: z.array(childSchema).default([]),
 });
 
@@ -78,7 +81,12 @@ const updateProfileSchema = z.object({
   lastName: z.string().trim().min(1).optional(),
   phone: z.string().trim().regex(/^[0-9+\-\s()]{7,20}$/, 'מספר טלפון לא תקין').optional(),
   address: z
-    .object({ city: z.string().trim().min(1), street: z.string().trim().min(1) })
+    .object({
+      city: z.string().trim().min(1),
+      street: z.string().trim().min(1),
+      houseNumber: z.string().trim().optional().or(z.literal('')),
+      apartment: z.string().trim().optional().or(z.literal('')),
+    })
     .optional(),
   dateOfBirth: z.coerce.date().optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),
@@ -87,7 +95,8 @@ const updateProfileSchema = z.object({
     .optional(),
   employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']).optional(),
   studentLevel: z.enum(['bachelors', 'masters', 'doctorate', 'other']).optional().nullable(),
-  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול']).optional(),
+  selfEmployedBusiness: z.string().trim().optional().or(z.literal('')),
+  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה']).optional(),
   children: z.array(childSchema).optional(),
 });
 
@@ -133,7 +142,7 @@ const jobSchema = z.object({
     facebook: z.string().optional().or(z.literal('')),
     instagram: z.string().optional().or(z.literal('')),
     whatsapp: z.string().optional().or(z.literal('')),
-    tiktok: z.string().optional().or(z.literal('')),
+    linkedin: z.string().optional().or(z.literal('')),
   }).optional(),
 });
 

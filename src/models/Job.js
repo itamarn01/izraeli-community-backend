@@ -33,7 +33,7 @@ const jobSchema = new mongoose.Schema(
     website: { type: String, default: '' },
     socialMedia: {
       type: new mongoose.Schema(
-        { facebook: String, instagram: String, whatsapp: String, tiktok: String },
+        { facebook: String, instagram: String, whatsapp: String, linkedin: String },
         { _id: false }
       ),
       default: () => ({}),

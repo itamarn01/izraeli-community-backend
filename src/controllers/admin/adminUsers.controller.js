@@ -88,25 +88,32 @@ async function exportUsers(req, res, next) {
     const MARITAL_HE = { single: 'רווק/ה', married: 'נשוי/אה', common_law: 'ידוע/ה בציבור', in_relationship: 'בזוגיות', divorced: 'גרוש/ה', other: 'אחר' };
     const EMPLOY_HE = { employee: 'שכיר/ה', self_employed: 'עצמאי/ת', combined: 'משולב', not_working: 'לא עובד/ת', student: 'סטודנט/ית' };
 
-    const headers = ['שם פרטי','שם משפחה','מייל','טלפון','גדוד','מגדר','מצב משפחתי','תעסוקה','עיר','רחוב','ילדים','ארגון','תפקיד','מאומת','נוצר'];
+    const headers = ['שם פרטי','שם משפחה','מייל','טלפון','גדוד','מגדר','מצב משפחתי','תעסוקה','שם עסק / תחום','עיר','רחוב','מספר בית','דירה','ילדים','ארגון','תפקיד','מאומת','נוצר'];
     const toCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const rows = users.map((u) => [
-      u.profile?.firstName || '',
-      u.profile?.lastName || '',
-      u.email,
-      u.profile?.phone || '',
-      u.profile?.gedud || '',
-      GENDER_HE[u.profile?.gender] || '',
-      MARITAL_HE[u.profile?.maritalStatus] || '',
-      EMPLOY_HE[u.profile?.employmentStatus] || '',
-      u.profile?.address?.city || '',
-      u.profile?.address?.street || '',
-      u.profile?.children?.length ?? 0,
-      u.organization?.name || '',
-      u.role === 'admin' ? 'מנהל' : 'חבר',
-      u.isEmailVerified ? 'כן' : 'לא',
-      new Date(u.createdAt).toLocaleDateString('he-IL'),
-    ].map(toCell).join(','));
+    const rows = users.map((u) => {
+      const p = u.profile || {};
+      const isSelfEmp = p.employmentStatus === 'self_employed' || p.employmentStatus === 'combined';
+      return [
+        p.firstName || '',
+        p.lastName || '',
+        u.email,
+        p.phone || '',
+        p.gedud || '',
+        GENDER_HE[p.gender] || '',
+        MARITAL_HE[p.maritalStatus] || '',
+        EMPLOY_HE[p.employmentStatus] || '',
+        isSelfEmp ? (p.selfEmployedBusiness || '') : '',
+        p.address?.city || '',
+        p.address?.street || '',
+        p.address?.houseNumber || '',
+        p.address?.apartment || '',
+        p.children?.length ?? 0,
+        u.organization?.name || '',
+        u.role === 'admin' ? 'מנהל' : 'חבר',
+        u.isEmailVerified ? 'כן' : 'לא',
+        new Date(u.createdAt).toLocaleDateString('he-IL'),
+      ].map(toCell).join(',');
+    });
 
     const csv = '﻿' + [headers.map(toCell).join(','), ...rows].join('\n');
 
