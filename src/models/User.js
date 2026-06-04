@@ -17,6 +17,8 @@ const profileSchema = new mongoose.Schema(
     address: {
       city: { type: String, trim: true },
       street: { type: String, trim: true },
+      houseNumber: { type: String, trim: true, default: '' },
+      apartment: { type: String, trim: true, default: '' },
     },
     dateOfBirth: { type: Date },
     gender: { type: String, enum: ['male', 'female', 'other'] },
@@ -34,8 +36,9 @@ const profileSchema = new mongoose.Schema(
     },
     gedud: {
       type: String,
-      enum: ['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול'],
+      enum: ['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה'],
     },
+    selfEmployedBusiness: { type: String, trim: true, default: '' },
     children: { type: [childSchema], default: [] },
   },
   { _id: false }
