@@ -99,6 +99,7 @@ async function compose(req, res, next) {
       organization,
       isAdminPost: true,
       adminDisplayName: adminDisplayName?.trim() || 'הנהלה',
+      adminAvatarUrl: req.admin?.avatarUrl || '',
     });
 
     await createNotification({
@@ -127,6 +128,7 @@ async function adminComment(req, res, next) {
       text: text.trim(),
       isAdminComment: true,
       adminDisplayName: adminDisplayName?.trim() || 'הנהלה',
+      adminAvatarUrl: req.admin?.avatarUrl || '',
     });
     await post.save();
     const populated = await post.populate('comments.user', 'profile.firstName profile.lastName avatarUrl');

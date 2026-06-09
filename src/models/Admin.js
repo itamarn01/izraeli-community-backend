@@ -8,6 +8,7 @@ const adminSchema = new mongoose.Schema(
     password: { type: String, required: true, minlength: 8, select: false },
 
     fullName: { type: String, default: '' },
+    avatarUrl: { type: String, default: '' },
     role: { type: String, enum: ['superadmin', 'admin'], default: 'admin' },
 
     isEmailVerified: { type: Boolean, default: false },

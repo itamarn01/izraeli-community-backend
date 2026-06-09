@@ -172,4 +172,29 @@ async function me(req, res) {
   res.json({ admin: req.admin.toSafeJSON() });
 }
 
-module.exports = { bootstrap, login, verifyOtp, resendOtp, me };
+async function updateProfile(req, res, next) {
+  try {
+    const admin = await Admin.findById(req.admin._id).select('+password');
+    if (!admin) return res.status(404).json({ message: 'מנהל לא נמצא' });
+
+    const { fullName, avatarUrl, newPassword, currentPassword } = req.body;
+
+    if (fullName !== undefined) admin.fullName = fullName;
+    if (avatarUrl !== undefined) admin.avatarUrl = avatarUrl;
+
+    if (newPassword) {
+      if (!currentPassword) return res.status(400).json({ message: 'יש להזין סיסמה נוכחית' });
+      const ok = await admin.comparePassword(currentPassword);
+      if (!ok) return res.status(400).json({ message: 'סיסמה נוכחית שגויה' });
+      if (newPassword.length < 8) return res.status(400).json({ message: 'סיסמה חייבת להכיל לפחות 8 תווים' });
+      admin.password = newPassword;
+    }
+
+    await admin.save();
+    res.json({ admin: admin.toSafeJSON() });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { bootstrap, login, verifyOtp, resendOtp, me, updateProfile };
