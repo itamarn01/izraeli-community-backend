@@ -124,6 +124,7 @@ const benefitSchema = z.object({
   redemptionLink: z.string().optional().or(z.literal('')),
   redemptionCode: z.string().optional().or(z.literal('')),
   validUntil: z.coerce.date().optional().nullable(),
+  gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה', 'שותף לדרך']).optional().or(z.literal('')),
 });
 
 const jobSchema = z.object({

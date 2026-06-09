@@ -6,6 +6,7 @@ const commentSchema = new mongoose.Schema(
     text: { type: String, required: true, trim: true },
     isAdminComment: { type: Boolean, default: false },
     adminDisplayName: { type: String, default: '' },
+    adminAvatarUrl: { type: String, default: '' },
   },
   { timestamps: true }
 );
@@ -21,6 +22,7 @@ const postSchema = new mongoose.Schema(
     isHidden: { type: Boolean, default: false },
     isAdminPost: { type: Boolean, default: false },
     adminDisplayName: { type: String, default: '' },
+    adminAvatarUrl: { type: String, default: '' },
   },
   { timestamps: true }
 );

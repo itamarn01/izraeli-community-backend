@@ -17,6 +17,7 @@ router.post('/auth/login', auth.login);
 router.post('/auth/verify-otp', auth.verifyOtp);
 router.post('/auth/resend-otp', auth.resendOtp);
 router.get('/auth/me', requireAdminPanel, auth.me);
+router.patch('/auth/profile', requireAdminPanel, auth.updateProfile);
 
 // All routes below require admin panel auth
 router.use(requireAdminPanel);
