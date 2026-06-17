@@ -33,8 +33,12 @@ async function list(req, res, next) {
 
 async function getOne(req, res, next) {
   try {
+    const orgId = String(req.user.organization._id || req.user.organization);
     const job = await Job.findById(req.params.id).populate('postedBy', 'profile.firstName profile.lastName email');
-    if (!job) return res.status(404).json({ message: 'משרה לא נמצאה' });
+    // Scope to the user's organization — don't expose another org's job by id.
+    if (!job || String(job.organization) !== orgId) {
+      return res.status(404).json({ message: 'משרה לא נמצאה' });
+    }
 
     const isOwner = job.postedBy._id.toString() === req.user._id.toString();
     const obj = job.toObject();

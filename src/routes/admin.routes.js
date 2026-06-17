@@ -8,14 +8,17 @@ const posts = require('../controllers/admin/adminPosts.controller');
 const benefits = require('../controllers/admin/adminBenefits.controller');
 const suggestions = require('../controllers/admin/adminBenefitSuggestions.controller');
 const { requireAdminPanel } = require('../middleware/adminAuth');
+const { authLimiter } = require('../middleware/rateLimit');
 const { imageUpload } = require('../middleware/upload');
 const { uploadImageBuffer } = require('../services/cloudinary');
 
-// --- Auth ---
-router.post('/auth/bootstrap', auth.bootstrap);
-router.post('/auth/login', auth.login);
-router.post('/auth/verify-otp', auth.verifyOtp);
-router.post('/auth/resend-otp', auth.resendOtp);
+// --- Auth (public, rate-limited against brute force / email abuse) ---
+router.post('/auth/bootstrap', authLimiter, auth.bootstrap);
+router.post('/auth/login', authLimiter, auth.login);
+router.post('/auth/verify-otp', authLimiter, auth.verifyOtp);
+router.post('/auth/resend-otp', authLimiter, auth.resendOtp);
+router.post('/auth/forgot-password', authLimiter, auth.forgotPassword);
+router.post('/auth/reset-password', authLimiter, auth.resetPassword);
 router.get('/auth/me', requireAdminPanel, auth.me);
 router.patch('/auth/profile', requireAdminPanel, auth.updateProfile);
 
@@ -39,6 +42,7 @@ router.get('/dashboard', stats.dashboard);
 // --- Users ---
 router.get('/users/export', users.exportUsers);
 router.get('/users/deleted', users.listDeletedAccounts);
+router.get('/users/birthdays', users.upcomingBirthdays);
 router.get('/users', users.list);
 router.get('/users/:id', users.getOne);
 router.patch('/users/:id', users.update);

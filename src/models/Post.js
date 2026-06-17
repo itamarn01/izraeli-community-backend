@@ -27,4 +27,7 @@ const postSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Feed query: filter by organization + visibility, sorted newest-first.
+postSchema.index({ organization: 1, isHidden: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Post', postSchema);

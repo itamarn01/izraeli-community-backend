@@ -13,8 +13,9 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  username: z.string().trim().min(1),
-  password: z.string().min(1),
+  // Accepts either a username or an email address
+  username: z.string().trim().min(1).max(254),
+  password: z.string().min(1).max(200),
 });
 
 const otpSchema = z.object({
@@ -25,6 +26,22 @@ const otpSchema = z.object({
 const resendSchema = z.object({
   username: z.string().trim().min(1),
 });
+
+const forgotSchema = z.object({
+  identifier: z.string().trim().min(1, 'יש להזין שם משתמש או מייל').max(254),
+});
+
+const resetSchema = z.object({
+  identifier: z.string().trim().min(1).max(254),
+  otp: z.string().regex(/^\d{6}$/, 'קוד לא תקין'),
+  newPassword: z.string().min(8, 'סיסמה חייבת להכיל לפחות 8 תווים').max(200),
+});
+
+// Find an admin by username or email (case-insensitive), without leaking which matched
+function buildIdentifierQuery(identifier) {
+  const id = identifier.toLowerCase().trim();
+  return { $or: [{ username: id }, { email: id }] };
+}
 
 async function bootstrap(req, res, next) {
   try {
@@ -80,7 +97,7 @@ async function bootstrap(req, res, next) {
 async function login(req, res, next) {
   try {
     const { username, password } = loginSchema.parse(req.body);
-    const admin = await Admin.findOne({ username: username.toLowerCase() }).select('+password');
+    const admin = await Admin.findOne(buildIdentifierQuery(username)).select('+password');
     if (!admin) return res.status(401).json({ message: 'שם משתמש או סיסמה שגויים' });
 
     const ok = await admin.comparePassword(password);
@@ -168,16 +185,85 @@ async function resendOtp(req, res, next) {
   }
 }
 
+async function forgotPassword(req, res, next) {
+  try {
+    const { identifier } = forgotSchema.parse(req.body);
+    const admin = await Admin.findOne(buildIdentifierQuery(identifier));
+
+    // Always respond identically to avoid revealing whether the account exists
+    const genericMessage = 'אם החשבון קיים במערכת, נשלח קוד לאיפוס הסיסמה למייל';
+    if (!admin) return res.json({ message: genericMessage });
+
+    const otp = generateOtp();
+    admin.resetPasswordOtp = otp;
+    admin.resetPasswordOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await admin.save();
+
+    try {
+      await sendOtpEmail(
+        admin.email,
+        otp,
+        'קוד לאיפוס סיסמת מנהל — קהילת חטיבת יזרעאלי',
+        'קוד איפוס סיסמה'
+      );
+    } catch (emailErr) {
+      console.error('[admin forgotPassword] שגיאה בשליחת מייל:', emailErr.message);
+    }
+
+    res.json({ message: genericMessage });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function resetPassword(req, res, next) {
+  try {
+    const { identifier, otp, newPassword } = resetSchema.parse(req.body);
+    const admin = await Admin.findOne(buildIdentifierQuery(identifier))
+      .select('+password +resetPasswordOtp +resetPasswordOtpExpires');
+    if (!admin) return res.status(400).json({ message: 'קוד לא תקין או שפג תוקפו' });
+
+    if (
+      !admin.resetPasswordOtp ||
+      !admin.resetPasswordOtpExpires ||
+      admin.resetPasswordOtpExpires < new Date()
+    ) {
+      return res.status(400).json({ message: 'הקוד פג תוקף, יש לבקש קוד חדש' });
+    }
+    if (admin.resetPasswordOtp !== otp) {
+      return res.status(400).json({ message: 'קוד לא תקין' });
+    }
+
+    admin.password = newPassword;
+    admin.resetPasswordOtp = undefined;
+    admin.resetPasswordOtpExpires = undefined;
+    // A successful reset over email also confirms ownership of the mailbox
+    admin.isEmailVerified = true;
+    await admin.save();
+
+    res.json({ message: 'הסיסמה אופסה בהצלחה — ניתן להתחבר' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function me(req, res) {
   res.json({ admin: req.admin.toSafeJSON() });
 }
 
+const updateProfileSchema = z.object({
+  fullName: z.string().trim().max(120).optional(),
+  avatarUrl: z.string().trim().url('כתובת תמונה לא תקינה').max(2048).optional().or(z.literal('')),
+  currentPassword: z.string().max(200).optional(),
+  newPassword: z.string().min(8, 'סיסמה חייבת להכיל לפחות 8 תווים').max(200).optional(),
+});
+
 async function updateProfile(req, res, next) {
   try {
+    const { fullName, avatarUrl, newPassword, currentPassword } = updateProfileSchema.parse(req.body);
+
     const admin = await Admin.findById(req.admin._id).select('+password');
     if (!admin) return res.status(404).json({ message: 'מנהל לא נמצא' });
-
-    const { fullName, avatarUrl, newPassword, currentPassword } = req.body;
 
     if (fullName !== undefined) admin.fullName = fullName;
     if (avatarUrl !== undefined) admin.avatarUrl = avatarUrl;
@@ -186,7 +272,6 @@ async function updateProfile(req, res, next) {
       if (!currentPassword) return res.status(400).json({ message: 'יש להזין סיסמה נוכחית' });
       const ok = await admin.comparePassword(currentPassword);
       if (!ok) return res.status(400).json({ message: 'סיסמה נוכחית שגויה' });
-      if (newPassword.length < 8) return res.status(400).json({ message: 'סיסמה חייבת להכיל לפחות 8 תווים' });
       admin.password = newPassword;
     }
 
@@ -197,4 +282,4 @@ async function updateProfile(req, res, next) {
   }
 }
 
-module.exports = { bootstrap, login, verifyOtp, resendOtp, me, updateProfile };
+module.exports = { bootstrap, login, verifyOtp, resendOtp, forgotPassword, resetPassword, me, updateProfile };

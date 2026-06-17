@@ -27,8 +27,12 @@ async function list(req, res, next) {
 
 async function getOne(req, res, next) {
   try {
+    const orgId = String(req.user.organization._id || req.user.organization);
     const benefit = await Benefit.findById(req.params.id);
-    if (!benefit) return res.status(404).json({ message: 'הטבה לא נמצאה' });
+    // Scope to the user's organization — don't allow reading another org's benefit by id.
+    if (!benefit || String(benefit.organization) !== orgId || benefit.isHidden) {
+      return res.status(404).json({ message: 'הטבה לא נמצאה' });
+    }
     res.json({ benefit });
   } catch (err) {
     next(err);
