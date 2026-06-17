@@ -239,4 +239,38 @@ async function listDeletedAccounts(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts };
+async function upcomingBirthdays(req, res, next) {
+  try {
+    const { organization } = req.query;
+    const filter = { 'profile.dateOfBirth': { $exists: true, $ne: null } };
+    if (organization) filter.organization = organization;
+
+    const users = await User.find(filter)
+      .select('profile.firstName profile.lastName profile.dateOfBirth profile.gedud profile.phone email avatarUrl')
+      .lean();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    function daysUntil(dob) {
+      const d = new Date(dob);
+      const next = new Date(today.getFullYear(), d.getMonth(), d.getDate());
+      if (next < today) next.setFullYear(today.getFullYear() + 1);
+      return Math.round((next - today) / (1000 * 60 * 60 * 24));
+    }
+
+    const withDays = users
+      .map((u) => ({ ...u, daysUntil: daysUntil(u.profile.dateOfBirth) }))
+      .filter((u) => u.daysUntil <= 13)
+      .sort((a, b) => a.daysUntil - b.daysUntil);
+
+    res.json({
+      thisWeek: withDays.filter((u) => u.daysUntil <= 6),
+      nextWeek: withDays.filter((u) => u.daysUntil >= 7),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts, upcomingBirthdays };

@@ -41,4 +41,7 @@ const benefitSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Listing query: organization + active/visible benefits, sorted newest-first.
+benefitSchema.index({ organization: 1, isActive: 1, isHidden: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Benefit', benefitSchema);

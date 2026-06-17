@@ -49,5 +49,9 @@ const jobSchema = new mongoose.Schema(
 );
 
 jobSchema.index({ title: 'text', description: 'text', company: 'text' });
+// Listing query: organization + active/visible jobs, sorted newest-first.
+jobSchema.index({ organization: 1, isActive: 1, isHidden: 1, createdAt: -1 });
+// "My applications" filter.
+jobSchema.index({ 'applications.user': 1 });
 
 module.exports = mongoose.model('Job', jobSchema);
