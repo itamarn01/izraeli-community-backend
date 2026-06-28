@@ -77,6 +77,8 @@ router.delete('/benefit-suggestions/:id', suggestions.remove);
 
 // --- Benefits ---
 router.get('/benefits', benefits.list);
+router.get('/benefits/:id/coupons', benefits.getCoupons);
+router.post('/benefits/:id/coupons', benefits.manageCoupons);
 router.get('/benefits/:id', benefits.getOne);
 router.post('/benefits', benefits.create);
 router.patch('/benefits/:id', benefits.update);

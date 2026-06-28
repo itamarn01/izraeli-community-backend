@@ -129,4 +129,73 @@ async function sendPasswordResetByAdmin({ to, newPassword, adminName }) {
   });
 }
 
-module.exports = { sendOtpEmail, sendApplicationEmail, sendAdminMessage, sendPasswordResetByAdmin };
+async function sendCouponEmail({ to, userName, benefitTitle, businessName, code, qrCode, validUntil }) {
+  const safeTitle = escapeHtml(benefitTitle || '');
+  const safeBusiness = escapeHtml(businessName || '');
+  const safeCode = escapeHtml(code || '');
+  const safeQr = escapeHtml(qrCode || '');
+  const safeUser = escapeHtml(userName || '');
+  const validStr = validUntil ? new Date(validUntil).toLocaleDateString('he-IL') : '';
+
+  const html = `
+    <div dir="rtl" style="font-family:Arial,sans-serif;padding:24px;background:#f5f5f4;color:#3A3A3A;">
+      <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border-top:6px solid #CB8333;">
+        <h2 style="margin:0 0 8px;">הקופון שלך מוכן!</h2>
+        <p style="color:#666;margin:0 0 20px;">שלום${safeUser ? ` ${safeUser}` : ''}, הנה קופון ההטבה שלך מקהילת חטיבת יזרעאלי</p>
+        ${safeBusiness ? `<p style="font-weight:bold;margin:0 0 4px;">${safeBusiness}</p>` : ''}
+        <p style="margin:0 0 20px;color:#666;">${safeTitle}</p>
+        <div style="background:#f5f5f4;border-radius:10px;padding:20px;text-align:center;margin:0 0 16px;">
+          <div style="font-size:12px;color:#999;margin-bottom:8px;">קוד הקופון שלך</div>
+          <div style="font-family:monospace;font-size:24px;font-weight:bold;letter-spacing:3px;color:#CB8333;">${safeCode}</div>
+          ${safeQr ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e5e5;">
+            <div style="font-size:11px;color:#999;margin-bottom:4px;">קוד ברקוד</div>
+            <div style="font-family:monospace;font-size:13px;color:#555;">${safeQr}</div>
+          </div>` : ''}
+        </div>
+        ${validStr ? `<p style="font-size:13px;color:#888;">תוקף ההטבה: ${validStr}</p>` : ''}
+        <p style="font-size:12px;color:#aaa;margin-top:24px;">הקופון הוקצה לך אישית ואינו ניתן להעברה.<br/>קהילת חטיבת יזרעאלי</p>
+      </div>
+    </div>`;
+
+  const c = getClient();
+  if (!c) {
+    console.log(`[DEV] Coupon email to ${to}: code=${code}`);
+    return { dev: true };
+  }
+  return c.emails.send({ from: FROM(), to, subject: `הקופון שלך: ${benefitTitle} — קהילת חטיבת יזרעאלי`, html });
+}
+
+async function sendCommentNotificationEmail({ to, authorName, commenterName, postContent, commentText, postUrl }) {
+  const safeAuthor = escapeHtml(authorName || '');
+  const safeCommenter = escapeHtml(commenterName || 'חבר קהילה');
+  const safeContent = escapeHtml(postContent || '');
+  const safeComment = escapeHtml(commentText || '');
+
+  const html = `
+    <div dir="rtl" style="font-family:Arial,sans-serif;padding:24px;background:#f5f5f4;color:#3A3A3A;">
+      <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border-top:6px solid #CB8333;">
+        <h2 style="margin:0 0 8px;">תגובה חדשה על הפוסט שלך</h2>
+        <p style="color:#666;margin:0 0 20px;">שלום${safeAuthor ? ` ${safeAuthor}` : ''}, ${safeCommenter} הגיב/ה על הפוסט שלך בקהילת חטיבת יזרעאלי</p>
+        ${safeContent ? `<div style="background:#f5f5f4;border-radius:8px;padding:16px;margin-bottom:16px;border-right:3px solid #CB8333;">
+          <div style="font-size:12px;color:#999;margin-bottom:6px;">הפוסט שלך</div>
+          <p style="margin:0;color:#555;font-size:14px;">${safeContent}${postContent.length >= 100 ? '…' : ''}</p>
+        </div>` : ''}
+        <div style="background:#fff8f0;border-radius:8px;padding:16px;margin-bottom:20px;border:1px solid #f5e0c0;">
+          <div style="font-size:12px;color:#999;margin-bottom:6px;">התגובה של ${safeCommenter}</div>
+          <p style="margin:0;white-space:pre-wrap;color:#3A3A3A;">${safeComment}</p>
+        </div>
+        ${postUrl ? `<a href="${encodeURI(postUrl)}" style="display:inline-block;background:#CB8333;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">צפייה בפוסט</a>` : ''}
+        <hr style="margin:24px 0;border:none;border-top:1px solid #eee;" />
+        <p style="font-size:12px;color:#aaa;margin:0;">קהילת חטיבת יזרעאלי</p>
+      </div>
+    </div>`;
+
+  const c = getClient();
+  if (!c) {
+    console.log(`[DEV] Comment notification to ${to} from ${commenterName}`);
+    return { dev: true };
+  }
+  return c.emails.send({ from: FROM(), to, subject: `${commenterName} הגיב/ה על הפוסט שלך — קהילת חטיבת יזרעאלי`, html });
+}
+
+module.exports = { sendOtpEmail, sendApplicationEmail, sendAdminMessage, sendPasswordResetByAdmin, sendCouponEmail, sendCommentNotificationEmail };

@@ -44,18 +44,23 @@ function buildFilter({ q, organization, isEmailVerified, role, gedud, employment
   if (isEmailVerified === 'true') filter.isEmailVerified = true;
   if (isEmailVerified === 'false') filter.isEmailVerified = false;
   if (gedud) filter['profile.gedud'] = gedud;
-  if (employmentStatus) filter['profile.employmentStatus'] = employmentStatus;
+  if (employmentStatus) {
+    filter.$and = (filter.$and || []).concat([{ $or: [
+      { 'profile.employmentStatuses': employmentStatus },
+      { 'profile.employmentStatus': employmentStatus },
+    ]}]);
+  }
   if (gender) filter['profile.gender'] = gender;
   if (maritalStatus) filter['profile.maritalStatus'] = maritalStatus;
   if (city) filter['profile.address.city'] = new RegExp(city, 'i');
   if (q) {
     const re = new RegExp(q, 'i');
-    filter.$or = [
+    filter.$and = (filter.$and || []).concat([{ $or: [
       { email: re },
       { 'profile.firstName': re },
       { 'profile.lastName': re },
       { 'profile.phone': re },
-    ];
+    ]}]);
   }
   return filter;
 }
@@ -87,12 +92,15 @@ async function exportUsers(req, res, next) {
     const GENDER_HE = { male: 'זכר', female: 'נקבה', other: 'אחר' };
     const MARITAL_HE = { single: 'רווק/ה', married: 'נשוי/אה', common_law: 'ידוע/ה בציבור', in_relationship: 'בזוגיות', divorced: 'גרוש/ה', other: 'אחר' };
     const EMPLOY_HE = { employee: 'שכיר/ה', self_employed: 'עצמאי/ת', combined: 'משולב', not_working: 'לא עובד/ת', student: 'סטודנט/ית' };
+    const employStr = (p) => {
+      const arr = p.employmentStatuses?.length ? p.employmentStatuses : (p.employmentStatus ? [p.employmentStatus] : []);
+      return arr.map((s) => EMPLOY_HE[s] || s).join(' + ');
+    };
 
     const headers = ['שם פרטי','שם משפחה','מייל','טלפון','גדוד','מגדר','מצב משפחתי','תעסוקה','שם עסק / תחום','עיר','רחוב','מספר בית','דירה','ילדים','ארגון','תפקיד','מאומת','נוצר'];
     const toCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = users.map((u) => {
       const p = u.profile || {};
-      const isSelfEmp = p.employmentStatus === 'self_employed' || p.employmentStatus === 'combined';
       return [
         p.firstName || '',
         p.lastName || '',
@@ -101,8 +109,8 @@ async function exportUsers(req, res, next) {
         p.gedud || '',
         GENDER_HE[p.gender] || '',
         MARITAL_HE[p.maritalStatus] || '',
-        EMPLOY_HE[p.employmentStatus] || '',
-        isSelfEmp ? (p.selfEmployedBusiness || '') : '',
+        employStr(p),
+        (p.employmentStatuses?.includes('self_employed') || p.employmentStatus === 'self_employed' || p.employmentStatus === 'combined') ? (p.selfEmployedBusiness || '') : '',
         p.address?.city || '',
         p.address?.street || '',
         p.address?.houseNumber || '',

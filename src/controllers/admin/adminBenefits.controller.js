@@ -87,4 +87,53 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, toggleHide, remove };
+async function getCoupons(req, res, next) {
+  try {
+    const benefit = await Benefit.findById(req.params.id)
+      .populate('coupons.claimedBy', 'profile.firstName profile.lastName email');
+    if (!benefit) return res.status(404).json({ message: 'הטבה לא נמצאה' });
+    const total = benefit.coupons.length;
+    const claimed = benefit.coupons.filter((c) => c.claimedBy).length;
+    res.json({
+      couponEnabled: benefit.couponEnabled,
+      coupons: benefit.coupons,
+      stats: { total, claimed, available: total - claimed },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function manageCoupons(req, res, next) {
+  try {
+    const benefit = await Benefit.findById(req.params.id);
+    if (!benefit) return res.status(404).json({ message: 'הטבה לא נמצאה' });
+
+    const { codes, couponEnabled, clearUnclaimed } = req.body;
+
+    if (couponEnabled !== undefined) benefit.couponEnabled = Boolean(couponEnabled);
+
+    if (clearUnclaimed) {
+      benefit.coupons = benefit.coupons.filter((c) => c.claimedBy);
+    }
+
+    if (codes && typeof codes === 'string' && codes.trim()) {
+      const lines = codes.split('\n').map((l) => l.trim()).filter(Boolean);
+      const newCoupons = lines.map((line) => {
+        const [code, qrCode] = line.split('\t').map((s) => s.trim());
+        return { code, qrCode: qrCode || '' };
+      });
+      benefit.coupons.push(...newCoupons);
+    }
+
+    await benefit.save();
+
+    const total = benefit.coupons.length;
+    const claimed = benefit.coupons.filter((c) => c.claimedBy).length;
+    res.json({ ok: true, couponEnabled: benefit.couponEnabled, stats: { total, claimed, available: total - claimed } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, create, update, toggleHide, remove, getCoupons, manageCoupons };

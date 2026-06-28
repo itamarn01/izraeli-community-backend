@@ -1,5 +1,7 @@
 const Post = require('../models/Post');
+const User = require('../models/User');
 const { postSchema, commentSchema } = require('../validation/schemas');
+const { sendCommentNotificationEmail } = require('../services/email');
 const { createNotification } = require('../services/notifications');
 
 async function list(req, res, next) {
@@ -83,6 +85,27 @@ async function comment(req, res, next) {
     await post.save();
     const populated = await post.populate('comments.user', 'profile.firstName profile.lastName avatarUrl');
     res.status(201).json({ comments: populated.comments });
+
+    // Notify post author by email (skip if commenter is the author)
+    const authorId = post.author;
+    if (authorId && String(authorId) !== String(req.user._id)) {
+      User.findById(authorId).select('email profile.firstName profile.lastName').lean()
+        .then((author) => {
+          if (!author?.email) return;
+          const commenterName = [req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || 'חבר קהילה';
+          const authorName = [author.profile?.firstName, author.profile?.lastName].filter(Boolean).join(' ') || '';
+          const appUrl = (process.env.CLIENT_ORIGIN || '').split(',')[0].trim();
+          return sendCommentNotificationEmail({
+            to: author.email,
+            authorName,
+            commenterName,
+            postContent: (post.content || '').slice(0, 100),
+            commentText: text,
+            postUrl: appUrl ? `${appUrl}/app/feed` : '',
+          });
+        })
+        .catch((err) => console.error('[comment] email failed:', err.message));
+    }
   } catch (err) {
     next(err);
   }

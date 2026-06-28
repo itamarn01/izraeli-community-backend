@@ -30,6 +30,10 @@ const profileSchema = new mongoose.Schema(
       type: String,
       enum: ['employee', 'self_employed', 'combined', 'not_working', 'student'],
     },
+    employmentStatuses: {
+      type: [{ type: String, enum: ['employee', 'self_employed', 'not_working', 'student'] }],
+      default: [],
+    },
     studentLevel: {
       type: String,
       enum: ['bachelors', 'masters', 'doctorate', 'other'],

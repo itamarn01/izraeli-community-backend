@@ -69,7 +69,8 @@ const questionnaireSchema = z.object({
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'תאריך לידה לא תקין' }) }),
   gender: z.enum(['male', 'female', 'other']),
   maritalStatus: z.enum(['single', 'married', 'common_law', 'in_relationship', 'divorced', 'other']),
-  employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']),
+  employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']).optional(),
+  employmentStatuses: z.array(z.enum(['employee', 'self_employed', 'not_working', 'student'])).optional(),
   studentLevel: z.enum(['bachelors', 'masters', 'doctorate', 'other']).optional(),
   selfEmployedBusiness: z.string().trim().optional().or(z.literal('')),
   gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה'], { required_error: 'נא לבחור גדוד' }),
@@ -94,6 +95,7 @@ const updateProfileSchema = z.object({
     .enum(['single', 'married', 'common_law', 'in_relationship', 'divorced', 'other'])
     .optional(),
   employmentStatus: z.enum(['employee', 'self_employed', 'combined', 'not_working', 'student']).optional(),
+  employmentStatuses: z.array(z.enum(['employee', 'self_employed', 'not_working', 'student'])).optional(),
   studentLevel: z.enum(['bachelors', 'masters', 'doctorate', 'other']).optional().nullable(),
   selfEmployedBusiness: z.string().trim().optional().or(z.literal('')),
   gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה']).optional(),
