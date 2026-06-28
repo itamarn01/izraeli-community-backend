@@ -7,6 +7,7 @@ const jobs = require('../controllers/admin/adminJobs.controller');
 const posts = require('../controllers/admin/adminPosts.controller');
 const benefits = require('../controllers/admin/adminBenefits.controller');
 const suggestions = require('../controllers/admin/adminBenefitSuggestions.controller');
+const forms = require('../controllers/admin/adminForms.controller');
 const { requireAdminPanel } = require('../middleware/adminAuth');
 const { authLimiter } = require('../middleware/rateLimit');
 const { imageUpload } = require('../middleware/upload');
@@ -84,5 +85,13 @@ router.post('/benefits', benefits.create);
 router.patch('/benefits/:id', benefits.update);
 router.post('/benefits/:id/toggle-hide', benefits.toggleHide);
 router.delete('/benefits/:id', benefits.remove);
+
+// --- Forms (letter templates) ---
+router.get('/forms', forms.list);
+router.get('/forms/:id', forms.getOne);
+router.post('/forms', forms.create);
+router.patch('/forms/:id', forms.update);
+router.post('/forms/:id/toggle-publish', forms.togglePublish);
+router.delete('/forms/:id', forms.remove);
 
 module.exports = router;
