@@ -149,6 +149,28 @@ const jobSchema = z.object({
   }).optional(),
 });
 
+const formFieldInputSchema = z.object({
+  key: z.string().trim().min(1),
+  label: z.string().trim().min(1, 'נדרשת תווית לשדה'),
+  type: z.enum(['text', 'date', 'select']).default('text'),
+  required: z.boolean().optional().default(false),
+  placeholder: z.string().optional().or(z.literal('')),
+  options: z.array(z.string()).optional().default([]),
+});
+
+const formInputSchema = z.object({
+  title: z.string().trim().min(2, 'נדרשת כותרת'),
+  description: z.string().optional().or(z.literal('')),
+  bodyHtml: z.string().optional().or(z.literal('')),
+  fields: z.array(formFieldInputSchema).optional().default([]),
+  fieldSeq: z.number().optional(),
+  requireUserSignature: z.boolean().optional(),
+  signatureLabel: z.string().optional().or(z.literal('')),
+  adminSignatureUrl: z.string().optional().or(z.literal('')),
+  adminSignatureLabel: z.string().optional().or(z.literal('')),
+  isPublished: z.boolean().optional(),
+});
+
 const postSchema = z.object({
   content: z.string().trim().min(1, 'התוכן ריק'),
   imageUrl: z.string().url().optional().or(z.literal('')),
@@ -177,4 +199,5 @@ module.exports = {
   postSchema,
   commentSchema,
   socialMediaSchema,
+  formInputSchema,
 };
