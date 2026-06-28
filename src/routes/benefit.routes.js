@@ -7,6 +7,8 @@ router.use(requireAuth, requireVerified, requireProfile);
 router.get('/', ctrl.list);
 router.post('/suggest', ctrl.suggest);
 router.get('/:id', ctrl.getOne);
+router.get('/:id/my-coupon', ctrl.getMyCoupon);
+router.post('/:id/claim', ctrl.claimCoupon);
 router.post('/', requireAdmin, ctrl.create);
 router.patch('/:id', requireAdmin, ctrl.update);
 router.delete('/:id', requireAdmin, ctrl.remove);

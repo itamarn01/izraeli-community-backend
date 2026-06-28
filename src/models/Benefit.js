@@ -34,6 +34,18 @@ const benefitSchema = new mongoose.Schema(
 
     gedud: { type: String, default: '' },
 
+    // Coupon system
+    couponEnabled: { type: Boolean, default: false },
+    coupons: [
+      {
+        code: { type: String, required: true, trim: true },
+        qrCode: { type: String, default: '' },
+        claimedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+        claimedAt: { type: Date, default: null },
+        _id: false,
+      },
+    ],
+
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
     isActive: { type: Boolean, default: true },
     isHidden: { type: Boolean, default: false },

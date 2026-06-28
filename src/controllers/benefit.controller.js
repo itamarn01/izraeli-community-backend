@@ -2,7 +2,7 @@ const Benefit = require('../models/Benefit');
 const BenefitSuggestion = require('../models/BenefitSuggestion');
 const { benefitSchema } = require('../validation/schemas');
 const { createNotification } = require('../services/notifications');
-const { sendAdminMessage } = require('../services/email');
+const { sendAdminMessage, sendCouponEmail } = require('../services/email');
 
 async function list(req, res, next) {
   try {
@@ -112,4 +112,60 @@ async function suggest(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove, suggest };
+async function getMyCoupon(req, res, next) {
+  try {
+    const orgId = String(req.user.organization._id || req.user.organization);
+    const benefit = await Benefit.findById(req.params.id);
+    if (!benefit || String(benefit.organization) !== orgId || benefit.isHidden) {
+      return res.status(404).json({ message: 'הטבה לא נמצאה' });
+    }
+    if (!benefit.couponEnabled) return res.json({ coupon: null });
+    const coupon = benefit.coupons.find((c) => c.claimedBy && String(c.claimedBy) === String(req.user._id));
+    const soldOut = !benefit.coupons.some((c) => !c.claimedBy);
+    const expired = benefit.validUntil && new Date() > new Date(benefit.validUntil);
+    res.json({ coupon: coupon || null, soldOut, expired });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function claimCoupon(req, res, next) {
+  try {
+    const orgId = String(req.user.organization._id || req.user.organization);
+    const benefit = await Benefit.findById(req.params.id);
+    if (!benefit || String(benefit.organization) !== orgId || benefit.isHidden) {
+      return res.status(404).json({ message: 'הטבה לא נמצאה' });
+    }
+    if (!benefit.couponEnabled) return res.status(400).json({ message: 'הטבה זו אינה כוללת קופונים' });
+    if (benefit.validUntil && new Date() > new Date(benefit.validUntil)) {
+      return res.status(400).json({ message: 'ההטבה פגה תוקף' });
+    }
+
+    const existing = benefit.coupons.find((c) => c.claimedBy && String(c.claimedBy) === String(req.user._id));
+    if (existing) return res.json({ coupon: existing, alreadyClaimed: true });
+
+    const available = benefit.coupons.find((c) => !c.claimedBy);
+    if (!available) return res.status(400).json({ message: 'נגמרו הקופונים, מצטערים!' });
+
+    available.claimedBy = req.user._id;
+    available.claimedAt = new Date();
+    await benefit.save();
+
+    const userName = [req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || '';
+    sendCouponEmail({
+      to: req.user.email,
+      userName,
+      benefitTitle: benefit.title,
+      businessName: benefit.businessName,
+      code: available.code,
+      qrCode: available.qrCode,
+      validUntil: benefit.validUntil,
+    }).catch((err) => console.error('[claimCoupon] email failed:', err.message));
+
+    res.json({ coupon: available, alreadyClaimed: false });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, create, update, remove, suggest, getMyCoupon, claimCoupon };
