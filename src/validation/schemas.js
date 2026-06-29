@@ -169,6 +169,8 @@ const formInputSchema = z.object({
   adminSignatureUrl: z.string().optional().or(z.literal('')),
   adminSignatureLabel: z.string().optional().or(z.literal('')),
   isPublished: z.boolean().optional(),
+  theme: z.enum(['official', 'modern', 'classic']).optional().default('official'),
+  colorKey: z.enum(['olive', 'blue', 'bordeaux', 'charcoal', 'forest']).optional().default('olive'),
 });
 
 const postSchema = z.object({
