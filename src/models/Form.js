@@ -34,6 +34,10 @@ const formSchema = new mongoose.Schema(
 
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
     isPublished: { type: Boolean, default: false },
+
+    // Document appearance
+    theme: { type: String, enum: ['official', 'modern', 'classic'], default: 'official' },
+    colorKey: { type: String, enum: ['olive', 'blue', 'bordeaux', 'charcoal', 'forest'], default: 'olive' },
   },
   { timestamps: true }
 );

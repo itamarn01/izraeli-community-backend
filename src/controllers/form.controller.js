@@ -17,8 +17,8 @@ async function list(req, res, next) {
 async function getOne(req, res, next) {
   try {
     const orgId = String(req.user.organization._id || req.user.organization);
-    const form = await Form.findById(req.params.id);
-    if (!form || String(form.organization) !== orgId || !form.isPublished) {
+    const form = await Form.findById(req.params.id).populate('organization', 'name');
+    if (!form || String(form.organization?._id || form.organization) !== orgId || !form.isPublished) {
       return res.status(404).json({ message: 'הטופס לא נמצא' });
     }
     res.json({ form });
