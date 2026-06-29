@@ -1,4 +1,5 @@
 const { Resend } = require('resend');
+const bwipjs = require('bwip-js');
 const { escapeHtml } = require('../utils/html');
 
 let client = null;
@@ -129,6 +130,23 @@ async function sendPasswordResetByAdmin({ to, newPassword, adminName }) {
   });
 }
 
+async function generateBarcodeDataUri(text) {
+  if (!text) return null;
+  try {
+    const png = await bwipjs.toBuffer({
+      bcid: 'code128',
+      text,
+      scale: 3,
+      height: 12,
+      includetext: false,
+      backgroundcolor: 'ffffff',
+    });
+    return `data:image/png;base64,${png.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 async function sendCouponEmail({ to, userName, benefitTitle, businessName, code, qrCode, validUntil }) {
   const safeTitle = escapeHtml(benefitTitle || '');
   const safeBusiness = escapeHtml(businessName || '');
@@ -136,6 +154,8 @@ async function sendCouponEmail({ to, userName, benefitTitle, businessName, code,
   const safeQr = escapeHtml(qrCode || '');
   const safeUser = escapeHtml(userName || '');
   const validStr = validUntil ? new Date(validUntil).toLocaleDateString('he-IL') : '';
+
+  const barcodeImg = await generateBarcodeDataUri(qrCode || code || '');
 
   const html = `
     <div dir="rtl" style="font-family:Arial,sans-serif;padding:24px;background:#f5f5f4;color:#3A3A3A;">
@@ -147,10 +167,14 @@ async function sendCouponEmail({ to, userName, benefitTitle, businessName, code,
         <div style="background:#f5f5f4;border-radius:10px;padding:20px;text-align:center;margin:0 0 16px;">
           <div style="font-size:12px;color:#999;margin-bottom:8px;">קוד הקופון שלך</div>
           <div style="font-family:monospace;font-size:24px;font-weight:bold;letter-spacing:3px;color:#CB8333;">${safeCode}</div>
-          ${safeQr ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e5e5;">
+          ${barcodeImg ? `<div style="margin-top:14px;padding-top:14px;border-top:1px solid #e5e5e5;">
+            <div style="font-size:11px;color:#999;margin-bottom:8px;">ברקוד</div>
+            <img src="${barcodeImg}" alt="ברקוד" style="max-width:280px;width:100%;height:auto;display:block;margin:0 auto;" />
+            ${safeQr ? `<div style="font-family:monospace;font-size:11px;color:#aaa;margin-top:4px;">${safeQr}</div>` : ''}
+          </div>` : (safeQr ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e5e5;">
             <div style="font-size:11px;color:#999;margin-bottom:4px;">קוד ברקוד</div>
             <div style="font-family:monospace;font-size:13px;color:#555;">${safeQr}</div>
-          </div>` : ''}
+          </div>` : '')}
         </div>
         ${validStr ? `<p style="font-size:13px;color:#888;">תוקף ההטבה: ${validStr}</p>` : ''}
         <p style="font-size:12px;color:#aaa;margin-top:24px;">הקופון הוקצה לך אישית ואינו ניתן להעברה.<br/>קהילת חטיבת יזרעאלי</p>

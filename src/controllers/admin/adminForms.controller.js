@@ -1,4 +1,5 @@
 const Form = require('../../models/Form');
+const FormSubmission = require('../../models/FormSubmission');
 const { formInputSchema } = require('../../validation/schemas');
 const { createNotification } = require('../../services/notifications');
 
@@ -102,4 +103,17 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, togglePublish, remove };
+async function listSubmissions(req, res, next) {
+  try {
+    const form = await Form.findById(req.params.id).select('title fields');
+    if (!form) return res.status(404).json({ message: 'הטופס לא נמצא' });
+    const submissions = await FormSubmission.find({ form: req.params.id })
+      .populate('user', 'firstName lastName email phone')
+      .sort({ createdAt: -1 });
+    res.json({ form, submissions });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, create, update, togglePublish, remove, listSubmissions };

@@ -6,5 +6,6 @@ router.use(requireAuth, requireVerified, requireProfile);
 
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.getOne);
+router.post('/:id/submit', ctrl.submit);
 
 module.exports = router;
