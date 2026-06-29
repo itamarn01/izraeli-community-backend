@@ -1,4 +1,5 @@
 const Form = require('../models/Form');
+const FormSubmission = require('../models/FormSubmission');
 
 // List published forms for the user's organization.
 async function list(req, res, next) {
@@ -27,4 +28,25 @@ async function getOne(req, res, next) {
   }
 }
 
-module.exports = { list, getOne };
+// Submit a filled form (stores user + values).
+async function submit(req, res, next) {
+  try {
+    const orgId = String(req.user.organization._id || req.user.organization);
+    const form = await Form.findById(req.params.id);
+    if (!form || String(form.organization) !== orgId || !form.isPublished) {
+      return res.status(404).json({ message: 'הטופס לא נמצא' });
+    }
+    const values = req.body.values || {};
+    const submission = await FormSubmission.create({
+      form: form._id,
+      user: req.user._id,
+      organization: orgId,
+      values,
+    });
+    res.status(201).json({ submission });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, submit };

@@ -88,6 +88,7 @@ router.delete('/benefits/:id', benefits.remove);
 
 // --- Forms (letter templates) ---
 router.get('/forms', forms.list);
+router.get('/forms/:id/submissions', forms.listSubmissions);
 router.get('/forms/:id', forms.getOne);
 router.post('/forms', forms.create);
 router.patch('/forms/:id', forms.update);
