@@ -21,7 +21,7 @@ const benefitSchema = new mongoose.Schema(
     imageUrl: { type: String, default: '' },
 
     // Discount — either percentage or price comparison
-    discountType: { type: String, enum: ['percentage', 'price_comparison'], default: 'percentage' },
+    discountType: { type: String, enum: ['percentage', 'price_comparison', 'gift_with_purchase'], default: 'percentage' },
     discountPercent: { type: Number, default: null },
     originalPrice: { type: Number, default: null },
     discountedPrice: { type: Number, default: null },

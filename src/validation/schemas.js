@@ -117,7 +117,7 @@ const benefitSchema = z.object({
   website: z.string().optional().or(z.literal('')),
   socialMedia: socialMediaSchema,
   imageUrl: z.string().url().optional().or(z.literal('')),
-  discountType: z.enum(['percentage', 'price_comparison']).optional(),
+  discountType: z.enum(['percentage', 'price_comparison', 'gift_with_purchase']).optional(),
   discountPercent: z.number().min(0).max(100).optional().nullable(),
   originalPrice: z.number().min(0).optional().nullable(),
   discountedPrice: z.number().min(0).optional().nullable(),
