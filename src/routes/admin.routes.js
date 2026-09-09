@@ -8,6 +8,8 @@ const posts = require('../controllers/admin/adminPosts.controller');
 const benefits = require('../controllers/admin/adminBenefits.controller');
 const suggestions = require('../controllers/admin/adminBenefitSuggestions.controller');
 const forms = require('../controllers/admin/adminForms.controller');
+const events = require('../controllers/admin/adminEvents.controller');
+const broadcasts = require('../controllers/admin/adminBroadcasts.controller');
 const { requireAdminPanel } = require('../middleware/adminAuth');
 const { authLimiter } = require('../middleware/rateLimit');
 const { imageUpload } = require('../middleware/upload');
@@ -94,5 +96,24 @@ router.post('/forms', forms.create);
 router.patch('/forms/:id', forms.update);
 router.post('/forms/:id/toggle-publish', forms.togglePublish);
 router.delete('/forms/:id', forms.remove);
+
+// --- Events (landing page + registrations) ---
+router.get('/events', events.list);
+router.get('/events/:id/registrations', events.listRegistrations);
+router.get('/events/:id/export', events.exportRegistrations);
+router.get('/events/:id', events.getOne);
+router.post('/events', events.create);
+router.patch('/events/:id', events.update);
+router.delete('/events/:id/registrations/:regId', events.removeRegistration);
+router.delete('/events/:id', events.remove);
+
+// --- Broadcasts (bulk email via Flashy) ---
+router.get('/broadcasts/status', broadcasts.status);
+router.post('/broadcasts/preview', broadcasts.preview);
+router.post('/broadcasts/test', broadcasts.testSend);
+router.get('/broadcasts', broadcasts.list);
+router.post('/broadcasts', broadcasts.create);
+router.get('/broadcasts/:id', broadcasts.getOne);
+router.delete('/broadcasts/:id', broadcasts.remove);
 
 module.exports = router;

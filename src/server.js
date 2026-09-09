@@ -19,6 +19,7 @@ const postRoutes = require('./routes/post.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const notificationRoutes = require('./routes/notification.routes');
 const searchRoutes = require('./routes/search.routes');
+const eventRoutes = require('./routes/event.routes');
 const adminRoutes = require('./routes/admin.routes');
 
 const app = express();
@@ -79,6 +80,7 @@ app.use('/api/posts', postRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/events', eventRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }));
