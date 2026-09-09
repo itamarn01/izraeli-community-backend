@@ -182,6 +182,77 @@ const commentSchema = z.object({
   text: z.string().trim().min(1).max(1000),
 });
 
+// ── Events ──────────────────────────────────────────────────────────────
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const eventTourSlotSchema = z.object({
+  _id: z.string().optional(),
+  time: z.string().regex(TIME_RE, 'שעה לא תקינה (HH:MM)'),
+  capacity: z.coerce.number().int().min(1, 'לפחות מקום אחד').max(10000),
+  takenSeats: z.coerce.number().int().min(0).optional(),
+});
+
+const eventTourSchema = z.object({
+  _id: z.string().optional(),
+  title: z.string().trim().min(2, 'נדרשת כותרת לסיור'),
+  description: z.string().optional().or(z.literal('')),
+  slots: z.array(eventTourSlotSchema).default([]),
+});
+
+const eventInputSchema = z.object({
+  title: z.string().trim().min(2, 'נדרשת כותרת לאירוע'),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9֐-׿-]+$/i, 'הכתובת יכולה להכיל אותיות, ספרות ומקפים בלבד')
+    .optional()
+    .or(z.literal('')),
+  imageUrl: z.string().optional().or(z.literal('')),
+  descriptionHtml: z.string().optional().or(z.literal('')),
+  summary: z.string().max(300).optional().or(z.literal('')),
+
+  date: z.string().regex(DATE_RE, 'נדרש תאריך לאירוע'),
+  startTime: z.string().regex(TIME_RE, 'שעה לא תקינה').optional().or(z.literal('')),
+  endTime: z.string().regex(TIME_RE, 'שעה לא תקינה').optional().or(z.literal('')),
+
+  location: z.string().optional().or(z.literal('')),
+  locationUrl: z.string().optional().or(z.literal('')),
+
+  capacity: z.coerce.number().int().min(0).default(0),
+  registrationClosesAt: z.coerce.date().nullable().optional(),
+
+  allowSpouse: z.boolean().optional(),
+  toursEnabled: z.boolean().optional(),
+  tours: z.array(eventTourSchema).default([]),
+  autoPopup: z.boolean().optional(),
+
+  childrenEnabled: z.boolean().optional(),
+  childrenMinAge: z.coerce.number().int().min(0).max(120).default(0),
+});
+
+// What a member sends from the registration popup.
+const eventRegistrationSchema = z
+  .object({
+    hasSpouse: z.boolean().default(false),
+    spouseName: z.string().trim().max(120).optional().or(z.literal('')),
+    childrenIds: z.array(z.string()).default([]),
+    tourId: z.string().nullable().optional(),
+    slotId: z.string().nullable().optional(),
+    // Whether the tour seat covers the spouse too.
+    tourForBoth: z.boolean().default(false),
+  })
+  .refine((d) => !d.hasSpouse || (d.spouseName && d.spouseName.trim().length >= 2), {
+    message: 'נדרש שם בן/בת הזוג',
+    path: ['spouseName'],
+  })
+  .refine((d) => (!d.tourId && !d.slotId) || (d.tourId && d.slotId), {
+    message: 'יש לבחור שעה לסיור',
+    path: ['slotId'],
+  });
+
 module.exports = {
   orgCodeSchema,
   registerSchema,
@@ -202,4 +273,6 @@ module.exports = {
   commentSchema,
   socialMediaSchema,
   formInputSchema,
+  eventInputSchema,
+  eventRegistrationSchema,
 };

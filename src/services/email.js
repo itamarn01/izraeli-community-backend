@@ -1,6 +1,7 @@
 const { Resend } = require('resend');
 const bwipjs = require('bwip-js');
 const { escapeHtml } = require('../utils/html');
+const { sanitizeEmailHtml, htmlToText } = require('../utils/sanitizeHtml');
 
 let client = null;
 
@@ -80,13 +81,19 @@ async function sendApplicationEmail({ to, jobTitle, company, applicant, message,
   });
 }
 
-async function sendAdminMessage({ to, subject, message, adminName }) {
+// `message` may be rich HTML from the admin editor; `isHtml` false keeps the
+// old plain-text behaviour for any caller that still passes raw text.
+async function sendAdminMessage({ to, subject, message, adminName, isHtml = false }) {
+  const body = isHtml
+    ? sanitizeEmailHtml(message)
+    : `<div style="white-space:pre-wrap;">${escapeHtml(message)}</div>`;
+
   const html = `
     <div dir="rtl" style="font-family: Arial, sans-serif; padding: 24px; background: #f5f5f4; color: #3A3A3A;">
       <div style="max-width: 560px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 32px; border-top: 6px solid #CB8333;">
         <h2 style="margin: 0 0 8px;">${escapeHtml(subject)}</h2>
         <p style="color: #666; margin: 0 0 20px; font-size: 13px;">הודעה מצוות הניהול של קהילת חטיבת יזרעאלי</p>
-        <div style="white-space:pre-wrap; line-height:1.7; font-size:14px;">${escapeHtml(message)}</div>
+        <div style="line-height:1.7; font-size:14px;">${body}</div>
         <hr style="margin:24px 0; border:none; border-top:1px solid #eee;" />
         <p style="font-size:12px; color:#aaa; margin:0;">${adminName ? `נשלח על ידי ${escapeHtml(adminName)} · ` : ''}קהילת חטיבת יזרעאלי</p>
       </div>

@@ -5,10 +5,12 @@ const Post = require('../../models/Post');
 const Job = require('../../models/Job');
 const DeletedAccount = require('../../models/DeletedAccount');
 const { sendAdminMessage, sendPasswordResetByAdmin } = require('../../services/email');
+const { sanitizeEmailHtml, htmlToText } = require('../../utils/sanitizeHtml');
 
 const messageSchema = z.object({
   subject: z.string().trim().min(1).max(200),
-  message: z.string().trim().min(1).max(5000),
+  // Rich HTML from the admin editor; 50k leaves room for markup around the text.
+  message: z.string().trim().min(1).max(50000),
 });
 
 const resetPasswordSchema = z.object({
@@ -221,10 +223,14 @@ async function sendMessage(req, res, next) {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'משתמש לא נמצא' });
 
+    const clean = sanitizeEmailHtml(message);
+    if (!htmlToText(clean)) return res.status(400).json({ message: 'תוכן ההודעה ריק' });
+
     await sendAdminMessage({
       to: user.email,
       subject,
-      message,
+      message: clean,
+      isHtml: true,
       adminName: req.admin.fullName || req.admin.username,
     });
     res.json({ ok: true, message: 'ההודעה נשלחה בהצלחה' });
@@ -281,4 +287,4 @@ async function upcomingBirthdays(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts, upcomingBirthdays };
+module.exports = { list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts, upcomingBirthdays, buildFilter };

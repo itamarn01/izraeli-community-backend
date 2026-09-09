@@ -2,6 +2,7 @@ const Notification = require('../models/Notification');
 const Post = require('../models/Post');
 const Job = require('../models/Job');
 const Benefit = require('../models/Benefit');
+const Event = require('../models/Event');
 
 async function list(req, res, next) {
   try {
@@ -12,12 +13,12 @@ async function list(req, res, next) {
       .populate('actor', 'profile.firstName profile.lastName');
 
     // Gather resourceIds by type to check visibility
-    const ids = { post: [], job: [], benefit: [] };
+    const ids = { post: [], job: [], benefit: [], event: [] };
     for (const n of notifications) {
       if (n.resourceId && ids[n.type]) ids[n.type].push(n.resourceId);
     }
 
-    const [visiblePosts, visibleJobs, visibleBenefits] = await Promise.all([
+    const [visiblePosts, visibleJobs, visibleBenefits, visibleEvents] = await Promise.all([
       ids.post.length
         ? Post.find({ _id: { $in: ids.post }, isHidden: { $ne: true } }).select('_id').lean()
         : [],
@@ -27,12 +28,14 @@ async function list(req, res, next) {
       ids.benefit.length
         ? Benefit.find({ _id: { $in: ids.benefit }, isHidden: { $ne: true }, isActive: { $ne: false } }).select('_id').lean()
         : [],
+      ids.event.length ? Event.find({ _id: { $in: ids.event } }).select('_id').lean() : [],
     ]);
 
     const visible = new Set([
       ...visiblePosts.map((d) => String(d._id)),
       ...visibleJobs.map((d) => String(d._id)),
       ...visibleBenefits.map((d) => String(d._id)),
+      ...visibleEvents.map((d) => String(d._id)),
     ]);
 
     const filtered = notifications.filter(
