@@ -169,20 +169,36 @@ async function resetPassword(req, res, next) {
   }
 }
 
+// A login identifier can be the account's own email or its verified spouse
+// email — either resolves to the same account, per the shared-login-code design.
+function findByLoginIdentifier(emailLower, extraSelect = '') {
+  return User.findOne({
+    $or: [
+      { email: emailLower },
+      { 'profile.spouseEmail': emailLower, 'profile.spouseEmailVerified': true },
+    ],
+  }).select(extraSelect);
+}
+
 async function requestLoginOtp(req, res, next) {
   try {
     const { email } = loginOtpRequestSchema.parse(req.body);
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await findByLoginIdentifier(email.toLowerCase());
     if (user && user.isEmailVerified) {
       const otp = generateOtp();
       user.loginOtp = otp;
       user.loginOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
       await user.save();
-      sendOtpEmail(
-        user.email,
-        otp,
-        'קוד כניסה — קהילת חטיבת יזרעאלי',
-        'קוד הכניסה שלך',
+      // The same code goes to both addresses, so whichever of the two typed
+      // it in can complete the login — one shared account, two doors in.
+      const recipients = [user.email];
+      if (user.profile?.spouseEmailVerified && user.profile.spouseEmail && user.profile.spouseEmail !== user.email) {
+        recipients.push(user.profile.spouseEmail);
+      }
+      Promise.all(
+        recipients.map((to) =>
+          sendOtpEmail(to, otp, 'קוד כניסה — קהילת חטיבת יזרעאלי', 'קוד הכניסה שלך')
+        )
       ).catch((err) => console.error('Login OTP email failed:', err.message));
     }
     // Always return same response to prevent user enumeration
@@ -195,9 +211,7 @@ async function requestLoginOtp(req, res, next) {
 async function verifyLoginOtp(req, res, next) {
   try {
     const { email, otp } = loginOtpVerifySchema.parse(req.body);
-    const user = await User.findOne({ email: email.toLowerCase() })
-      .select('+loginOtp +loginOtpExpires')
-      .populate('organization');
+    const user = await findByLoginIdentifier(email.toLowerCase(), '+loginOtp +loginOtpExpires').populate('organization');
     if (!user || !user.isEmailVerified)
       return res.status(401).json({ message: 'קוד לא תקין' });
     if (!user.loginOtp || !user.loginOtpExpires || user.loginOtpExpires < new Date())

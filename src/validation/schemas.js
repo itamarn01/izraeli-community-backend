@@ -51,6 +51,15 @@ const verifyNewEmailSchema = z.object({
   otp: z.string().regex(/^\d{6}$/, 'קוד לא תקין'),
 });
 
+const spouseEmailRequestSchema = z.object({
+  spouseName: z.string().trim().min(2, 'נדרש שם בן/בת הזוג'),
+  spouseEmail: z.string().trim().email('כתובת מייל לא תקינה'),
+});
+
+const spouseEmailVerifySchema = z.object({
+  otp: z.string().regex(/^\d{6}$/, 'קוד לא תקין'),
+});
+
 const childSchema = z.object({
   name: z.string().trim().min(1, 'נדרש שם הילד/ה'),
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'תאריך לידה לא תקין' }) }),
@@ -265,6 +274,8 @@ module.exports = {
   resetPasswordSchema,
   changeEmailSchema,
   verifyNewEmailSchema,
+  spouseEmailRequestSchema,
+  spouseEmailVerifySchema,
   questionnaireSchema,
   updateProfileSchema,
   benefitSchema,

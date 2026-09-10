@@ -4,7 +4,10 @@ const Job = require('../models/Job');
 const DeletedAccount = require('../models/DeletedAccount');
 const { generateOtp } = require('../utils/token');
 const { sendOtpEmail } = require('../services/email');
-const { updateProfileSchema, changeEmailSchema, verifyNewEmailSchema } = require('../validation/schemas');
+const {
+  updateProfileSchema, changeEmailSchema, verifyNewEmailSchema,
+  spouseEmailRequestSchema, spouseEmailVerifySchema,
+} = require('../validation/schemas');
 const { uploadImageBuffer } = require('../services/cloudinary');
 
 async function updateProfile(req, res, next) {
@@ -57,6 +60,86 @@ async function verifyNewEmail(req, res, next) {
     await user.save();
 
     res.json({ user: user.toSafeJSON(), message: 'כתובת המייל עודכנה בהצלחה' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Sends a verification code to a spouse's email address. Nothing on the
+// profile changes until verifySpouseEmail confirms it — mirrors requestEmailChange.
+async function requestSpouseEmail(req, res, next) {
+  try {
+    const { spouseName, spouseEmail } = spouseEmailRequestSchema.parse(req.body);
+    const normalized = spouseEmail.toLowerCase().trim();
+
+    if (normalized === req.user.email) {
+      return res.status(400).json({ message: 'לא ניתן להשתמש בכתובת המייל שלך עצמך' });
+    }
+    const clash = await User.findOne({
+      $or: [
+        { email: normalized },
+        { 'profile.spouseEmail': normalized, 'profile.spouseEmailVerified': true, _id: { $ne: req.user._id } },
+      ],
+    });
+    if (clash) return res.status(409).json({ message: 'כתובת מייל זו כבר משויכת לחשבון אחר' });
+
+    const user = req.user;
+    const otp = generateOtp();
+    user.spousePendingName = spouseName.trim();
+    user.spousePendingEmail = normalized;
+    user.spousePendingEmailOtp = otp;
+    user.spousePendingEmailOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    await sendOtpEmail(
+      normalized,
+      otp,
+      'אימות כניסה לחברותא 186',
+      `קוד האימות שלך — הוזמנת על ידי ${[req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || 'בן/בת הזוג'} להתחבר יחד לחברותא 186`
+    );
+    res.json({ message: `נשלח קוד אימות אל ${normalized}` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function verifySpouseEmail(req, res, next) {
+  try {
+    const { otp } = spouseEmailVerifySchema.parse(req.body);
+    const user = await User.findById(req.user._id)
+      .select('+spousePendingName +spousePendingEmail +spousePendingEmailOtp +spousePendingEmailOtpExpires');
+    if (!user.spousePendingEmail) return res.status(400).json({ message: 'אין בקשת אימות פעילה' });
+    if (!user.spousePendingEmailOtp || !user.spousePendingEmailOtpExpires || user.spousePendingEmailOtpExpires < new Date())
+      return res.status(400).json({ message: 'הקוד פג תוקף, יש לבקש קוד חדש' });
+    if (user.spousePendingEmailOtp !== otp) return res.status(400).json({ message: 'קוד לא תקין' });
+
+    user.profile.spouseName = user.spousePendingName;
+    user.profile.spouseEmail = user.spousePendingEmail;
+    user.profile.spouseEmailVerified = true;
+    user.spousePendingName = undefined;
+    user.spousePendingEmail = undefined;
+    user.spousePendingEmailOtp = undefined;
+    user.spousePendingEmailOtpExpires = undefined;
+    await user.save();
+
+    res.json({ user: user.toSafeJSON(), message: 'כתובת המייל של בן/בת הזוג אומתה בהצלחה' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeSpouseEmail(req, res, next) {
+  try {
+    const user = req.user;
+    user.profile.spouseName = '';
+    user.profile.spouseEmail = '';
+    user.profile.spouseEmailVerified = false;
+    user.spousePendingName = undefined;
+    user.spousePendingEmail = undefined;
+    user.spousePendingEmailOtp = undefined;
+    user.spousePendingEmailOtpExpires = undefined;
+    await user.save();
+    res.json({ user: user.toSafeJSON() });
   } catch (err) {
     next(err);
   }
@@ -137,4 +220,8 @@ async function uploadAvatar(req, res, next) {
   }
 }
 
-module.exports = { updateProfile, requestEmailChange, verifyNewEmail, uploadCv, uploadAvatar, changePassword, deleteAccount, acceptTerms };
+module.exports = {
+  updateProfile, requestEmailChange, verifyNewEmail,
+  requestSpouseEmail, verifySpouseEmail, removeSpouseEmail,
+  uploadCv, uploadAvatar, changePassword, deleteAccount, acceptTerms,
+};

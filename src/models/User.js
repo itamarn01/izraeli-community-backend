@@ -44,6 +44,12 @@ const profileSchema = new mongoose.Schema(
     },
     selfEmployedBusiness: { type: String, trim: true, default: '' },
     children: { type: [childSchema], default: [] },
+
+    // A spouse who can log into this same account via a verified email — see
+    // the spouse OTP fields on the user schema below.
+    spouseName: { type: String, trim: true, default: '' },
+    spouseEmail: { type: String, trim: true, lowercase: true, default: '' },
+    spouseEmailVerified: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -72,6 +78,13 @@ const userSchema = new mongoose.Schema(
     pendingEmail: { type: String, select: false },
     pendingEmailOtp: { type: String, select: false },
     pendingEmailOtpExpires: { type: Date, select: false },
+
+    // Pending spouse email (verified by OTP sent to the spouse's address; only
+    // applied to profile.spouseName/spouseEmail once confirmed).
+    spousePendingName: { type: String, select: false },
+    spousePendingEmail: { type: String, select: false },
+    spousePendingEmailOtp: { type: String, select: false },
+    spousePendingEmailOtpExpires: { type: Date, select: false },
 
     isProfileComplete: { type: Boolean, default: false },
     profile: { type: profileSchema, default: () => ({}) },
@@ -106,6 +119,10 @@ userSchema.methods.toSafeJSON = function () {
   delete obj.pendingEmailOtpExpires;
   delete obj.loginOtp;
   delete obj.loginOtpExpires;
+  delete obj.spousePendingName;
+  delete obj.spousePendingEmail;
+  delete obj.spousePendingEmailOtp;
+  delete obj.spousePendingEmailOtpExpires;
   return obj;
 };
 
