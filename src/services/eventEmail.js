@@ -82,14 +82,16 @@ async function sendEventRegistrationEmail({ to, userName, event, registration, k
         row('שעות', event.startTime ? escapeHtml([event.startTime, event.endTime].filter(Boolean).join(' – ')) : ''),
         row('מיקום', escapeHtml(event.location)),
         row('בן/בת זוג', registration?.hasSpouse ? escapeHtml(registration.spouseName || 'כן') : 'לא'),
-        row(
-          'סיור',
-          tour
-            ? `${escapeHtml(tour.tourTitle || 'סיור')} · ${escapeHtml(tour.time)}${
-                tour.forBoth ? ' (לשניכם)' : registration?.hasSpouse ? ' (לחייל בלבד)' : ''
-              }`
-            : 'לא נרשמת לסיור'
-        ),
+        event.toursEnabled
+          ? row(
+              'סיור',
+              tour
+                ? `${escapeHtml(tour.tourTitle || 'סיור')} · ${escapeHtml(tour.time)}${
+                    tour.forBoth ? ' (לשניכם)' : registration?.hasSpouse ? ' (לחייל בלבד)' : ''
+                  }`
+                : 'לא נרשמת לסיור'
+            )
+          : '',
       ].join('');
 
   const calendarUrl = cancelled ? '' : googleCalendarUrl(event, tour);

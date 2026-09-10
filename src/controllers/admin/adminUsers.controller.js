@@ -139,7 +139,9 @@ async function exportUsers(req, res, next) {
 
 async function getOne(req, res, next) {
   try {
-    const user = await User.findById(req.params.id).populate('organization', 'name code');
+    const user = await User.findById(req.params.id)
+      .select('+spousePendingName +spousePendingEmail')
+      .populate('organization', 'name code');
     if (!user) return res.status(404).json({ message: 'משתמש לא נמצא' });
 
     const [postCount, jobCount] = await Promise.all([
@@ -147,7 +149,56 @@ async function getOne(req, res, next) {
       Job.countDocuments({ postedBy: user._id }),
     ]);
 
-    res.json({ user, stats: { postCount, jobCount } });
+    const obj = user.toObject({ versionKey: false });
+    // Surfaced only here, for the admin to manually approve a stuck verification
+    // (e.g. the spouse never received the code) — never exposed to the member.
+    obj.spousePending = user.spousePendingEmail
+      ? { name: user.spousePendingName, email: user.spousePendingEmail }
+      : null;
+    delete obj.password;
+    delete obj.spousePendingName;
+    delete obj.spousePendingEmail;
+
+    res.json({ user: obj, stats: { postCount, jobCount } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Manually promotes a pending spouse-email request to verified — for when the
+// spouse never received/entered the code. Falls back to just flipping the flag
+// if the member's profile already has a spouse email on file with nothing pending.
+async function verifySpouseEmail(req, res, next) {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('+spousePendingName +spousePendingEmail +spousePendingEmailOtp +spousePendingEmailOtpExpires');
+    if (!user) return res.status(404).json({ message: 'משתמש לא נמצא' });
+
+    if (user.spousePendingEmail) {
+      user.profile.spouseName = user.spousePendingName;
+      user.profile.spouseEmail = user.spousePendingEmail;
+      user.spousePendingName = undefined;
+      user.spousePendingEmail = undefined;
+      user.spousePendingEmailOtp = undefined;
+      user.spousePendingEmailOtpExpires = undefined;
+    } else if (!user.profile?.spouseEmail) {
+      return res.status(400).json({ message: 'אין בקשת אימות ממתינה עבור משתמש זה' });
+    }
+    user.profile.spouseEmailVerified = true;
+    await user.save();
+    res.json({ user: user.toSafeJSON() });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function unverifySpouseEmail(req, res, next) {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'משתמש לא נמצא' });
+    user.profile.spouseEmailVerified = false;
+    await user.save();
+    res.json({ user: user.toSafeJSON() });
   } catch (err) {
     next(err);
   }
@@ -287,4 +338,7 @@ async function upcomingBirthdays(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts, upcomingBirthdays, buildFilter };
+module.exports = {
+  list, getOne, update, remove, resetPassword, sendMessage, exportUsers, listDeletedAccounts, upcomingBirthdays,
+  verifySpouseEmail, unverifySpouseEmail, buildFilter,
+};

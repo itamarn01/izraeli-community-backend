@@ -52,6 +52,8 @@ router.patch('/users/:id', users.update);
 router.delete('/users/:id', users.remove);
 router.post('/users/:id/reset-password', users.resetPassword);
 router.post('/users/:id/send-message', users.sendMessage);
+router.post('/users/:id/spouse-email/verify', users.verifySpouseEmail);
+router.post('/users/:id/spouse-email/unverify', users.unverifySpouseEmail);
 
 // --- Organizations ---
 router.get('/organizations', orgs.list);
