@@ -390,6 +390,7 @@ async function saveRegistration(req, res, next, { isUpdate }) {
       registration,
       kind: isUpdate ? 'updated' : 'created',
       appUrl: process.env.CLIENT_URL || (process.env.CLIENT_ORIGIN || '').split(',')[0],
+      apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
     })
       .then(() =>
         EventRegistration.updateOne({ _id: registration._id }, { $set: { confirmationSentAt: new Date() } })

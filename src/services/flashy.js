@@ -1,5 +1,6 @@
-// Flashy REST API client — used for bulk/broadcast email only.
-// Everything transactional (OTP, coupons, event confirmations) stays on Resend.
+// Flashy REST API client — the app's only mail provider, for both broadcasts
+// and transactional mail (OTP, coupons, event confirmations). Senders reach it
+// through services/mailer.js rather than calling this directly.
 //
 // API reference: https://flashy.app/docs/rest-api/
 //   POST https://api.flashy.app/messages/email
@@ -8,6 +9,8 @@
 //
 // Note there is no bulk endpoint: `to` is a single recipient, so a broadcast is
 // one request per person. adminBroadcasts.controller drives that loop.
+// The endpoint takes an HTML body only — no attachments — so anything that
+// used to be attached (e.g. an .ics file) has to be linked instead.
 
 const BASE_URL = process.env.FLASHY_BASE_URL || 'https://api.flashy.app';
 const TIMEOUT_MS = 20000;
@@ -23,7 +26,7 @@ function configError() {
   if (!process.env.FLASHY_API_KEY) missing.push('FLASHY_API_KEY');
   if (!process.env.FLASHY_FROM_EMAIL) missing.push('FLASHY_FROM_EMAIL');
   if (!missing.length) return null;
-  return `שליחת תפוצה דרך Flashy אינה מוגדרת. חסר בקובץ ה-.env של השרת: ${missing.join(', ')}`;
+  return `שליחת מיילים דרך Flashy אינה מוגדרת. חסר בקובץ ה-.env של השרת: ${missing.join(', ')}`;
 }
 
 function sender() {
