@@ -1,19 +1,8 @@
 // Confirmation / update / cancellation emails for event registrations.
-// Kept out of email.js so the event module stays self-contained; it reuses the
-// same Resend client configuration.
-const { Resend } = require('resend');
+// Kept out of email.js so the event module stays self-contained; delivery
+// itself goes through the shared mailer like every other email.
 const { escapeHtml } = require('../utils/html');
-const { buildEventIcs } = require('./calendar');
-
-let client = null;
-function getClient() {
-  if (client) return client;
-  if (!process.env.RESEND_API_KEY) return null;
-  client = new Resend(process.env.RESEND_API_KEY);
-  return client;
-}
-
-const FROM = () => process.env.RESEND_FROM || 'onboarding@resend.dev';
+const { deliver } = require('./mailer');
 
 const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
@@ -57,10 +46,13 @@ function googleCalendarUrl(event, tour) {
 }
 
 /**
- * Confirmation email, with the personal .ics attached.
+ * Confirmation email. The personal calendar file is linked rather than
+ * attached — the .ics endpoint is public, and the mail provider takes an
+ * HTML body only.
  * @param {'created'|'updated'|'cancelled'} kind
+ * @param {string} [apiUrl] origin of this API, for the .ics download link
  */
-async function sendEventRegistrationEmail({ to, userName, event, registration, kind = 'created', appUrl }) {
+async function sendEventRegistrationEmail({ to, userName, event, registration, kind = 'created', appUrl, apiUrl }) {
   const tour = registration?.tour || null;
   const cancelled = kind === 'cancelled';
 
@@ -96,6 +88,11 @@ async function sendEventRegistrationEmail({ to, userName, event, registration, k
 
   const calendarUrl = cancelled ? '' : googleCalendarUrl(event, tour);
   const eventUrl = appUrl ? `${appUrl.replace(/\/$/, '')}/app/events?event=${event._id}` : '';
+  const icsUrl = cancelled || !apiUrl
+    ? ''
+    : `${apiUrl.replace(/\/$/, '')}/api/events/${event._id}/calendar.ics${
+        tour?.slotId ? `?slot=${tour.slotId}` : ''
+      }`;
 
   const html = `
     <div dir="rtl" style="font-family:Arial,sans-serif;padding:24px;background:#f5f5f4;color:#3A3A3A;">
@@ -107,7 +104,11 @@ async function sendEventRegistrationEmail({ to, userName, event, registration, k
           calendarUrl
             ? `<div style="margin-top:26px;">
                  <a href="${escapeHtml(calendarUrl)}" style="display:inline-block;background:#CB8333;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;">הוספה ליומן Google</a>
-                 <p style="font-size:12px;color:#999;margin:12px 0 0;">מצורף גם קובץ יומן (.ics) לפתיחה ב-Apple Calendar או Outlook.</p>
+                 ${
+                   icsUrl
+                     ? `<p style="font-size:13px;margin:14px 0 0;"><a href="${escapeHtml(icsUrl)}" style="color:#CB8333;font-weight:600;">הורדת קובץ יומן (.ics) ל-Apple Calendar או Outlook</a></p>`
+                     : ''
+                 }
                </div>`
             : ''
         }
@@ -121,30 +122,13 @@ async function sendEventRegistrationEmail({ to, userName, event, registration, k
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] Event ${kind} email to ${to}: ${event.title}${tour ? ` (סיור ${tour.time})` : ''}`);
-    return { dev: true };
-  }
-
-  const payload = {
-    from: FROM(),
+  return deliver({
     to,
+    toName: userName,
     subject: `${heading} — ${event.title}`,
     html,
-  };
-
-  if (!cancelled) {
-    payload.attachments = [
-      {
-        filename: 'event.ics',
-        content: Buffer.from(buildEventIcs(event, tour), 'utf8').toString('base64'),
-        contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
-      },
-    ];
-  }
-
-  return c.emails.send(payload);
+    devLabel: `Event ${kind} email to ${to}: ${event.title}${tour ? ` (סיור ${tour.time})` : ''}`,
+  });
 }
 
 module.exports = { sendEventRegistrationEmail, formatEventDate, googleCalendarUrl };

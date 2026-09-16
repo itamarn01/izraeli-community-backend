@@ -1,18 +1,7 @@
-const { Resend } = require('resend');
 const bwipjs = require('bwip-js');
 const { escapeHtml } = require('../utils/html');
 const { sanitizeEmailHtml, htmlToText } = require('../utils/sanitizeHtml');
-
-let client = null;
-
-function getClient() {
-  if (client) return client;
-  if (!process.env.RESEND_API_KEY) return null;
-  client = new Resend(process.env.RESEND_API_KEY);
-  return client;
-}
-
-const FROM = () => process.env.RESEND_FROM || 'onboarding@resend.dev';
+const { deliver } = require('./mailer');
 
 async function sendOtpEmail(
   to,
@@ -30,12 +19,7 @@ async function sendOtpEmail(
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] OTP for ${to}: ${otp}`);
-    return { dev: true };
-  }
-  return c.emails.send({ from: FROM(), to, subject, html });
+  return deliver({ to, subject, html, devLabel: `OTP for ${to}: ${otp}` });
 }
 
 async function sendApplicationEmail({ to, jobTitle, company, applicant, message, cvUrl, isAnonymous }) {
@@ -68,16 +52,11 @@ async function sendApplicationEmail({ to, jobTitle, company, applicant, message,
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] Application email to ${to}: ${applicantName} applied for ${jobTitle}`);
-    return { dev: true };
-  }
-  return c.emails.send({
-    from: FROM(),
+  return deliver({
     to,
     subject: `מועמדות חדשה: ${jobTitle} — קהילת חטיבת יזרעאלי`,
     html,
+    devLabel: `Application email to ${to}: ${applicantName} applied for ${jobTitle}`,
   });
 }
 
@@ -99,16 +78,11 @@ async function sendAdminMessage({ to, subject, message, adminName, isHtml = fals
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] Admin message to ${to}: ${subject}`);
-    return { dev: true };
-  }
-  return c.emails.send({
-    from: FROM(),
+  return deliver({
     to,
     subject: `${subject} — קהילת חטיבת יזרעאלי`,
     html,
+    devLabel: `Admin message to ${to}: ${subject}`,
   });
 }
 
@@ -124,16 +98,11 @@ async function sendPasswordResetByAdmin({ to, newPassword, adminName }) {
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] Password reset for ${to}: ${newPassword}`);
-    return { dev: true };
-  }
-  return c.emails.send({
-    from: FROM(),
+  return deliver({
     to,
     subject: 'איפוס סיסמה — קהילת חטיבת יזרעאלי',
     html,
+    devLabel: `Password reset for ${to}: ${newPassword}`,
   });
 }
 
@@ -188,12 +157,13 @@ async function sendCouponEmail({ to, userName, benefitTitle, businessName, code,
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] Coupon email to ${to}: code=${code}`);
-    return { dev: true };
-  }
-  return c.emails.send({ from: FROM(), to, subject: `הקופון שלך: ${benefitTitle} — קהילת חטיבת יזרעאלי`, html });
+  return deliver({
+    to,
+    toName: userName,
+    subject: `הקופון שלך: ${benefitTitle} — קהילת חטיבת יזרעאלי`,
+    html,
+    devLabel: `Coupon email to ${to}: code=${code}`,
+  });
 }
 
 async function sendCommentNotificationEmail({ to, authorName, commenterName, postContent, commentText, postUrl }) {
@@ -221,12 +191,13 @@ async function sendCommentNotificationEmail({ to, authorName, commenterName, pos
       </div>
     </div>`;
 
-  const c = getClient();
-  if (!c) {
-    console.log(`[DEV] Comment notification to ${to} from ${commenterName}`);
-    return { dev: true };
-  }
-  return c.emails.send({ from: FROM(), to, subject: `${commenterName} הגיב/ה על הפוסט שלך — קהילת חטיבת יזרעאלי`, html });
+  return deliver({
+    to,
+    toName: authorName,
+    subject: `${commenterName} הגיב/ה על הפוסט שלך — קהילת חטיבת יזרעאלי`,
+    html,
+    devLabel: `Comment notification to ${to} from ${commenterName}`,
+  });
 }
 
 module.exports = { sendOtpEmail, sendApplicationEmail, sendAdminMessage, sendPasswordResetByAdmin, sendCouponEmail, sendCommentNotificationEmail };
