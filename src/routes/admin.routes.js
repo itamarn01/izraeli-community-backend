@@ -78,6 +78,7 @@ router.delete('/posts/:id/comments/:commentId', posts.deleteComment);
 // --- Benefit Suggestions ---
 router.get('/benefit-suggestions', suggestions.list);
 router.patch('/benefit-suggestions/:id/status', suggestions.updateStatus);
+router.patch('/benefit-suggestions/:id', suggestions.update);
 router.delete('/benefit-suggestions/:id', suggestions.remove);
 
 // --- Benefits ---

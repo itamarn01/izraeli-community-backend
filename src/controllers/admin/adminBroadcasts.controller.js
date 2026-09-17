@@ -5,6 +5,7 @@ const Event = require('../../models/Event');
 const EventRegistration = require('../../models/EventRegistration');
 const { buildFilter } = require('./adminUsers.controller');
 const flashy = require('../../services/flashy');
+const { deliver } = require('../../services/mailer');
 const {
   renderBroadcastHtml,
   personalize,
@@ -27,7 +28,7 @@ const audienceSchema = z.object({
   type: z.enum(['users', 'event']),
   filters: z.record(z.string()).optional().default({}),
   event: z.string().optional(),
-  segment: z.enum(['registered', 'tour', 'slot', 'not_registered']).optional(),
+  segment: z.enum(['registered', 'tour', 'slot', 'not_registered', 'declined', 'cancelled']).optional(),
   tourId: z.string().nullable().optional(),
   slotId: z.string().nullable().optional(),
 });
@@ -54,7 +55,13 @@ const SEGMENT_LABELS = {
   tour: 'נרשמי הסיורים',
   slot: 'נרשמי שעת סיור',
   not_registered: 'טרם נרשמו',
+  declined: 'סימנו שאינם מגיעים',
+  cancelled: 'ביטלו את ההרשמה',
 };
+
+// Segments that address people by the state of a registration that is no
+// longer active, rather than by an active one.
+const INACTIVE_SEGMENTS = { declined: 'declined', cancelled: 'cancelled' };
 
 const USER_FILTER_LABELS = {
   q: 'חיפוש',
@@ -125,7 +132,10 @@ async function resolveRecipients(audience) {
     };
   }
 
-  const regFilter = { event: event._id, status: 'registered' };
+  const regFilter = {
+    event: event._id,
+    status: INACTIVE_SEGMENTS[audience.segment] || 'registered',
+  };
   if (audience.segment === 'tour') regFilter.tour = { $ne: null };
   if (audience.segment === 'slot') {
     if (!audience.slotId) throw Object.assign(new Error('יש לבחור שעת סיור'), { status: 400 });
@@ -279,8 +289,9 @@ async function testSend(req, res, next) {
       tourTime: '16:30',
     };
 
-    await flashy.sendEmail({
-      to: { name: adminName, email: req.admin.email },
+    await deliver({
+      to: req.admin.email,
+      toName: adminName,
       subject: `[בדיקה] ${personalizePlain(subject, context)}`,
       html: renderBroadcastHtml({
         subject: personalizePlain(subject, context),
@@ -318,11 +329,9 @@ async function runBroadcast(broadcastId, recipients, { subject, bodyHtml, adminN
     await Promise.all(
       batch.map(async (recipient) => {
         try {
-          await flashy.sendEmail({
-            to: {
-              name: [recipient.firstName, recipient.lastName].filter(Boolean).join(' '),
-              email: recipient.email,
-            },
+          await deliver({
+            to: recipient.email,
+            toName: [recipient.firstName, recipient.lastName].filter(Boolean).join(' '),
             subject: personalizePlain(subject, recipient),
             html: renderBroadcastHtml({
               subject: personalizePlain(subject, recipient),

@@ -12,7 +12,7 @@ const audienceSchema = new mongoose.Schema(
     event: { type: mongoose.Schema.Types.ObjectId, ref: 'Event' },
     segment: {
       type: String,
-      enum: ['registered', 'tour', 'slot', 'not_registered'],
+      enum: ['registered', 'tour', 'slot', 'not_registered', 'declined', 'cancelled'],
     },
     tourId: { type: mongoose.Schema.Types.ObjectId },
     slotId: { type: mongoose.Schema.Types.ObjectId },

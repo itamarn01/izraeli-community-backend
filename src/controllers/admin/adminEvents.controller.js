@@ -498,6 +498,29 @@ async function exportRegistrations(req, res, next) {
       });
     });
 
+    // 3.7 — Everyone who is not coming, so the list can be worked offline too
+    const notComing = registrations.filter((r) => r.status !== 'registered');
+    const absentees = addSheet(workbook, 'לא מגיעים', [
+      { header: '#', key: 'idx', width: 6 },
+      { header: 'שם מלא', key: 'member', width: 24 },
+      { header: 'סטטוס', key: 'status', width: 22 },
+      { header: 'גדוד / מסגרת', key: 'gedud', width: 18 },
+      { header: 'טלפון', key: 'phone', width: 16 },
+      { header: 'אימייל', key: 'email', width: 28 },
+      { header: 'תאריך העדכון', key: 'updated', width: 20 },
+    ]);
+    notComing.forEach((reg, i) => {
+      absentees.addRow({
+        idx: i + 1,
+        member: fullName(reg.user),
+        status: reg.status === 'declined' ? 'סימן/ה שאינו/ה מגיע/ה' : 'ביטל/ה הרשמה',
+        gedud: reg.user?.profile?.gedud || '',
+        phone: reg.user?.profile?.phone || '',
+        email: reg.user?.email || '',
+        updated: new Date(reg.updatedAt).toLocaleString('he-IL'),
+      });
+    });
+
     // 4 — Tour registrations
     const tours = addSheet(workbook, 'נרשמי סיורים', [
       { header: '#', key: 'idx', width: 6 },

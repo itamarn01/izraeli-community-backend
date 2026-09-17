@@ -1,6 +1,30 @@
 const Post = require('../../models/Post');
 const User = require('../../models/User');
 const { createNotification } = require('../../services/notifications');
+const { sendCommentNotificationEmail } = require('../../services/email');
+
+// Tells the post's author that someone replied. Detached from the response on
+// purpose: a mail outage must not fail the comment itself. Mirrors the member
+// path in post.controller.js.
+function notifyAuthorOfComment(post, { commenterName, text }) {
+  if (!post.author) return; // admin-authored post — nobody to notify
+  User.findById(post.author)
+    .select('email profile.firstName profile.lastName')
+    .lean()
+    .then((author) => {
+      if (!author?.email) return null;
+      const appUrl = (process.env.CLIENT_ORIGIN || '').split(',')[0].trim();
+      return sendCommentNotificationEmail({
+        to: author.email,
+        authorName: [author.profile?.firstName, author.profile?.lastName].filter(Boolean).join(' ') || '',
+        commenterName,
+        postContent: (post.content || '').slice(0, 100),
+        commentText: text,
+        postUrl: appUrl ? `${appUrl}/app/feed` : '',
+      });
+    })
+    .catch((err) => console.error('[adminComment] email failed:', err.message));
+}
 
 async function findUserIdsByQuery(query) {
   if (!query) return null;
@@ -124,15 +148,18 @@ async function adminComment(req, res, next) {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: 'פוסט לא נמצא' });
 
+    const displayName = adminDisplayName?.trim() || 'הנהלה';
     post.comments.push({
       text: text.trim(),
       isAdminComment: true,
-      adminDisplayName: adminDisplayName?.trim() || 'הנהלה',
+      adminDisplayName: displayName,
       adminAvatarUrl: req.admin?.avatarUrl || '',
     });
     await post.save();
     const populated = await post.populate('comments.user', 'profile.firstName profile.lastName avatarUrl');
     res.status(201).json({ comments: populated.comments });
+
+    notifyAuthorOfComment(post, { commenterName: displayName, text: text.trim() });
   } catch (err) {
     next(err);
   }

@@ -1,8 +1,11 @@
 const Benefit = require('../models/Benefit');
 const BenefitSuggestion = require('../models/BenefitSuggestion');
-const { benefitSchema } = require('../validation/schemas');
+const { benefitSchema, benefitSuggestionSchema } = require('../validation/schemas');
 const { createNotification } = require('../services/notifications');
 const { sendAdminMessage, sendCouponEmail } = require('../services/email');
+
+// Where a new suggestion is announced for review.
+const SUGGESTIONS_INBOX = process.env.SUPPORT_EMAIL || 'community.izraeli@gmail.com';
 
 async function list(req, res, next) {
   try {
@@ -80,29 +83,41 @@ async function remove(req, res, next) {
   }
 }
 
+// The member fills in the benefit exactly as it will be published; approval in
+// the admin panel copies it across as-is. Nothing here reaches the benefits
+// list until an admin approves it.
 async function suggest(req, res, next) {
   try {
-    const { businessName, description, contactName, contactPhone, website } = req.body;
-    if (!businessName?.trim() || !description?.trim()) {
-      return res.status(400).json({ message: 'שם עסק ותיאור הם שדות חובה' });
-    }
+    const data = benefitSuggestionSchema.parse(req.body);
     const orgId = req.user.organization._id || req.user.organization;
-    const submitterName = [req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || req.user.email;
+    const submitterName =
+      [req.user.profile?.firstName, req.user.profile?.lastName].filter(Boolean).join(' ') || req.user.email;
 
     const suggestion = await BenefitSuggestion.create({
+      ...data,
       organization: orgId,
       submittedBy: req.user._id,
-      businessName: businessName.trim(),
-      description: description.trim(),
-      contactName: contactName?.trim() || '',
-      contactPhone: contactPhone?.trim() || '',
-      website: website?.trim() || '',
     });
 
+    const lines = [
+      `עסק: ${data.businessName}`,
+      `כותרת: ${data.title}`,
+      `תיאור: ${data.description}`,
+      data.discountType === 'percentage' && data.discountPercent ? `הנחה: ${data.discountPercent}%` : '',
+      data.discountType === 'price_comparison' && data.discountedPrice != null
+        ? `מחיר: ${data.originalPrice ?? '?'} ₪ ← ${data.discountedPrice} ₪`
+        : '',
+      data.whatYouGet ? `מה מקבלים: ${data.whatYouGet}` : '',
+      data.contactName ? `שם איש קשר: ${data.contactName}` : '',
+      data.contactPhone ? `טלפון: ${data.contactPhone}` : '',
+      data.website ? `אתר: ${data.website}` : '',
+      data.imageUrl ? 'צורפה תמונה' : 'ללא תמונה',
+    ].filter(Boolean);
+
     sendAdminMessage({
-      to: 'community.izraeli@gmail.com',
-      subject: `הצעת הטבה חדשה: ${businessName.trim()}`,
-      message: `הוגשה הצעת הטבה חדשה:\n\nעסק: ${businessName.trim()}\nתיאור: ${description.trim()}${contactName ? `\nשם איש קשר: ${contactName}` : ''}${contactPhone ? `\nטלפון: ${contactPhone}` : ''}${website ? `\nאתר: ${website}` : ''}\n\nהוגש על ידי: ${submitterName}`,
+      to: SUGGESTIONS_INBOX,
+      subject: `הצעת הטבה חדשה: ${data.businessName}`,
+      message: `הוגשה הצעת הטבה חדשה הממתינה לאישור:\n\n${lines.join('\n')}\n\nהוגש על ידי: ${submitterName}\n\nלאישור ופרסום: מערכת הניהול ← הצעות הטבות.`,
       adminName: 'מערכת קהילת יזרעאלי',
     }).catch((err) => console.error('[suggest] email failed:', err.message));
 

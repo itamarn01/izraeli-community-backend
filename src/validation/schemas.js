@@ -138,6 +138,16 @@ const benefitSchema = z.object({
   gedud: z.enum(['משמר העמקים', 'אבישי', 'הכרמל', 'אבשלום', 'חרב שאול', 'מטה', 'שותף לדרך']).optional().or(z.literal('')),
 });
 
+// A member proposing a benefit fills in the same fields the published entry
+// has, plus contact details for the admin reviewing it. Business name is
+// required here (on a published benefit it is optional) because the admin is
+// being asked to vouch for a specific business.
+const benefitSuggestionSchema = benefitSchema.extend({
+  businessName: z.string().trim().min(2, 'נדרש שם העסק'),
+  contactName: z.string().optional().or(z.literal('')),
+  contactPhone: z.string().optional().or(z.literal('')),
+});
+
 const jobSchema = z.object({
   title: z.string().trim().min(2),
   company: z.string().trim().min(2),
@@ -279,6 +289,7 @@ module.exports = {
   questionnaireSchema,
   updateProfileSchema,
   benefitSchema,
+  benefitSuggestionSchema,
   jobSchema,
   postSchema,
   commentSchema,
