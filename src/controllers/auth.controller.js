@@ -123,12 +123,35 @@ async function submitQuestionnaire(req, res, next) {
   }
 }
 
+// Says when it cannot send, for the same reason requestLoginOtp does: the old
+// "if the address exists we sent a code" left people who never registered
+// staring at a code screen for a mail that was never coming. `authLimiter` on
+// the route is what holds enumeration back.
 async function forgotPassword(req, res, next) {
   try {
     const { email } = forgotPasswordSchema.parse(req.body);
-    const user = await User.findOne({ email: email.toLowerCase() });
-    // Return success regardless to prevent user enumeration
-    if (!user) return res.json({ message: 'אם הכתובת קיימת במערכת, נשלח קוד לאיפוס הסיסמה' });
+    const emailLower = email.toLowerCase();
+    const user = await User.findOne({ email: emailLower });
+
+    if (!user) {
+      // A spouse address can sign in, but the account's single password lives
+      // on the primary address — so reset from here would have nothing to
+      // reset. Point them at the code login instead of at registration.
+      const spouseOf = await User.findOne({
+        'profile.spouseEmail': emailLower,
+        'profile.spouseEmailVerified': true,
+      }).select('_id');
+      if (spouseOf) {
+        return res.status(400).json({
+          code: 'spouse_email',
+          message: 'הכתובת הזו רשומה כבן/בת זוג ואין לה סיסמה נפרדת. אפשר להיכנס עם קוד לאימייל, או לאפס את הסיסמה מכתובת המייל הראשית של החשבון.',
+        });
+      }
+      return res.status(404).json({
+        code: 'not_registered',
+        message: 'הכתובת הזו אינה רשומה במערכת, ולכן לא ניתן לשלוח אליה קוד לאיפוס סיסמה. יש להירשם קודם עם קוד הארגון.',
+      });
+    }
 
     const otp = generateOtp();
     user.resetPasswordOtp = otp;
@@ -141,7 +164,7 @@ async function forgotPassword(req, res, next) {
       'קוד לאיפוס סיסמה — קהילת חטיבת יזרעאלי',
       'קוד האיפוס שלך'
     );
-    res.json({ message: 'אם הכתובת קיימת במערכת, נשלח קוד לאיפוס הסיסמה' });
+    res.json({ message: 'קוד לאיפוס הסיסמה נשלח לכתובת המייל' });
   } catch (err) {
     next(err);
   }
@@ -180,29 +203,62 @@ function findByLoginIdentifier(emailLower, extraSelect = '') {
   }).select(extraSelect);
 }
 
+// Unlike the other code-sending endpoints, this one tells the caller when the
+// address is unknown. People who never registered were typing their email,
+// landing on the "we sent you a code" screen and waiting for a mail that was
+// never coming — a dead end with no way out. Enumeration is held back by
+// `authLimiter` on the route (20 requests / 15 min per IP in production)
+// rather than by a vague answer. `code` lets the UI offer the way forward.
 async function requestLoginOtp(req, res, next) {
   try {
     const { email } = loginOtpRequestSchema.parse(req.body);
     const user = await findByLoginIdentifier(email.toLowerCase());
-    if (user && user.isEmailVerified) {
-      const otp = generateOtp();
-      user.loginOtp = otp;
-      user.loginOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
-      await user.save();
-      // The same code goes to both addresses, so whichever of the two typed
-      // it in can complete the login — one shared account, two doors in.
-      const recipients = [user.email];
-      if (user.profile?.spouseEmailVerified && user.profile.spouseEmail && user.profile.spouseEmail !== user.email) {
-        recipients.push(user.profile.spouseEmail);
+
+    if (!user) {
+      // A spouse address that was entered but never verified is not a login
+      // identifier yet — telling them to register would be the wrong advice,
+      // since the account they belong to already exists.
+      const pendingSpouse = await User.findOne({ 'profile.spouseEmail': email.toLowerCase() }).select('_id');
+      if (pendingSpouse) {
+        return res.status(403).json({
+          code: 'spouse_not_verified',
+          message: 'הכתובת הזו נוספה כבן/בת זוג אך טרם אומתה, ולכן אי אפשר לשלוח אליה קוד כניסה. יש להשלים את האימות מהפרופיל של בן/בת הזוג הרשום/ה.',
+        });
       }
-      Promise.all(
-        recipients.map((to) =>
-          sendOtpEmail(to, otp, 'קוד כניסה — קהילת חטיבת יזרעאלי', 'קוד הכניסה שלך')
-        )
-      ).catch((err) => console.error('Login OTP email failed:', err.message));
+      return res.status(404).json({
+        code: 'not_registered',
+        message: 'הכתובת הזו אינה רשומה במערכת, ולכן לא ניתן לשלוח אליה קוד כניסה. יש להירשם קודם עם קוד הארגון.',
+      });
     }
-    // Always return same response to prevent user enumeration
-    res.json({ message: 'אם הכתובת קיימת במערכת, ישלח קוד כניסה' });
+
+    // Registered but never finished verifying. Password login is the only way
+    // in for them (it routes to the verification screen), so say that instead
+    // of sending a login code that would bypass verification.
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        code: 'email_not_verified',
+        message: 'החשבון קיים אבל כתובת המייל עדיין לא אומתה. יש להתחבר עם הסיסמה שבחרתם בהרשמה כדי להשלים את האימות.',
+      });
+    }
+
+    const otp = generateOtp();
+    user.loginOtp = otp;
+    user.loginOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    // The same code goes to both addresses, so whichever of the two typed
+    // it in can complete the login — one shared account, two doors in.
+    const recipients = [user.email];
+    if (user.profile?.spouseEmailVerified && user.profile.spouseEmail && user.profile.spouseEmail !== user.email) {
+      recipients.push(user.profile.spouseEmail);
+    }
+    Promise.all(
+      recipients.map((to) =>
+        sendOtpEmail(to, otp, 'קוד כניסה — קהילת חטיבת יזרעאלי', 'קוד הכניסה שלך')
+      )
+    ).catch((err) => console.error('Login OTP email failed:', err.message));
+
+    res.json({ message: 'קוד הכניסה נשלח לכתובת המייל' });
   } catch (err) {
     next(err);
   }
