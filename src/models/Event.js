@@ -59,6 +59,13 @@ const eventSchema = new mongoose.Schema(
     childrenEnabled: { type: Boolean, default: false },
     childrenMinAge: { type: Number, default: 0, min: 0, max: 120 },
 
+    // Once the event fills up, further members join a queue instead of being
+    // turned away. Off = a full event simply refuses new registrations.
+    waitlistEnabled: { type: Boolean, default: true },
+    // When seats free up, admit the people at the head of the queue without
+    // waiting for an admin. Off = the admin promotes by hand.
+    waitlistAutoPromote: { type: Boolean, default: true },
+
     // Whether the registration popup opens by itself when a member enters the app.
     autoPopup: { type: Boolean, default: true },
 
@@ -74,6 +81,12 @@ eventSchema.index({ organization: 1, date: 1 });
 eventSchema.methods.seatsLeft = function seatsLeft() {
   if (!this.capacity) return null;
   return Math.max(0, this.capacity - this.seatsTaken);
+};
+
+// True when no seat is free. Unlimited events are never full.
+eventSchema.methods.isFull = function isFull() {
+  if (!this.capacity) return false;
+  return this.seatsTaken >= this.capacity;
 };
 
 eventSchema.methods.isRegistrationClosed = function isRegistrationClosed() {

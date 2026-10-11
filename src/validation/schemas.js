@@ -250,6 +250,9 @@ const eventInputSchema = z.object({
 
   childrenEnabled: z.boolean().optional(),
   childrenMinAge: z.coerce.number().int().min(0).max(120).default(0),
+
+  waitlistEnabled: z.boolean().optional(),
+  waitlistAutoPromote: z.boolean().optional(),
 });
 
 // What a member sends from the registration popup.
