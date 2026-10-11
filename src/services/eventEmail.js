@@ -49,26 +49,48 @@ function googleCalendarUrl(event, tour) {
  * Confirmation email. The personal calendar file is linked rather than
  * attached — the .ics endpoint is public, and the mail provider takes an
  * HTML body only.
- * @param {'created'|'updated'|'cancelled'} kind
+ *
+ * 'waitlisted' is the one kind that confirms no booking: the event was full,
+ * so it reports the place in the queue and offers no calendar links, because
+ * there is nothing yet to put in a calendar. 'promoted' is its counterpart,
+ * sent when a seat frees up and the member is let in.
+ *
+ * @param {'created'|'updated'|'cancelled'|'waitlisted'|'promoted'} kind
+ * @param {number} [waitlistPosition] place in the queue, for 'waitlisted'
  * @param {string} [apiUrl] origin of this API, for the .ics download link
  */
-async function sendEventRegistrationEmail({ to, userName, event, registration, kind = 'created', appUrl, apiUrl }) {
+async function sendEventRegistrationEmail({
+  to, userName, event, registration, kind = 'created', waitlistPosition, appUrl, apiUrl,
+}) {
   const tour = registration?.tour || null;
   const cancelled = kind === 'cancelled';
+  const queued = kind === 'waitlisted';
+  const promoted = kind === 'promoted';
 
   const heading = cancelled
     ? 'ההרשמה שלך בוטלה'
-    : kind === 'updated'
-      ? 'ההרשמה שלך עודכנה'
-      : 'ההרשמה אושרה!';
+    : queued
+      ? 'נרשמת לרשימת ההמתנה'
+      : promoted
+        ? 'התפנה מקום — ההרשמה שלך אושרה!'
+        : kind === 'updated'
+          ? 'ההרשמה שלך עודכנה'
+          : 'ההרשמה אושרה!';
 
   const intro = cancelled
     ? 'ביטלת את ההשתתפות. תמיד אפשר להירשם מחדש כל עוד ההרשמה פתוחה.'
-    : `שלום${userName ? ` ${escapeHtml(userName)}` : ''}, מקומך נשמר. אלה הפרטים:`;
+    : queued
+      ? `שלום${userName ? ` ${escapeHtml(userName)}` : ''}, האירוע מלא כרגע ושמרנו לך מקום בתור.${
+          waitlistPosition ? ` המיקום שלך ברשימה: <strong>${waitlistPosition}</strong>.` : ''
+        } אם יתפנה מקום נעדכן אותך במייל. אלה הפרטים שרשמת:`
+      : promoted
+        ? `שלום${userName ? ` ${escapeHtml(userName)}` : ''}, התפנה מקום באירוע והגיע תורך — ההשתתפות שלך מאושרת. אלה הפרטים:`
+        : `שלום${userName ? ` ${escapeHtml(userName)}` : ''}, מקומך נשמר. אלה הפרטים:`;
 
   const detailsTable = cancelled
     ? row('אירוע', escapeHtml(event.title)) + row('תאריך', escapeHtml(formatEventDate(event.date)))
     : [
+        queued && waitlistPosition ? row('מיקום ברשימת ההמתנה', escapeHtml(String(waitlistPosition))) : '',
         row('אירוע', escapeHtml(event.title)),
         row('תאריך', escapeHtml(formatEventDate(event.date))),
         row('שעות', event.startTime ? escapeHtml([event.startTime, event.endTime].filter(Boolean).join(' – ')) : ''),
@@ -86,9 +108,9 @@ async function sendEventRegistrationEmail({ to, userName, event, registration, k
           : '',
       ].join('');
 
-  const calendarUrl = cancelled ? '' : googleCalendarUrl(event, tour);
+  const calendarUrl = cancelled || queued ? '' : googleCalendarUrl(event, tour);
   const eventUrl = appUrl ? `${appUrl.replace(/\/$/, '')}/app/events?event=${event._id}` : '';
-  const icsUrl = cancelled || !apiUrl
+  const icsUrl = cancelled || queued || !apiUrl
     ? ''
     : `${apiUrl.replace(/\/$/, '')}/api/events/${event._id}/calendar.ics${
         tour?.slotId ? `?slot=${tour.slotId}` : ''
@@ -96,7 +118,7 @@ async function sendEventRegistrationEmail({ to, userName, event, registration, k
 
   const html = `
     <div dir="rtl" style="font-family:Arial,sans-serif;padding:24px;background:#f5f5f4;color:#3A3A3A;">
-      <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border-top:6px solid ${cancelled ? '#9BAD94' : '#CB8333'};">
+      <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border-top:6px solid ${cancelled ? '#9BAD94' : queued ? '#8B8B8B' : '#CB8333'};">
         <h2 style="margin:0 0 8px;">${escapeHtml(heading)}</h2>
         <p style="color:#666;margin:0 0 22px;">${intro}</p>
         <table style="width:100%;border-collapse:collapse;">${detailsTable}</table>

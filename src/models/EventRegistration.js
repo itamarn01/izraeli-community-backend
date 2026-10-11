@@ -34,7 +34,14 @@ const eventRegistrationSchema = new mongoose.Schema(
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' },
 
     // 'declined' is stored too, so the auto-popup stops nagging someone who said no.
-    status: { type: String, enum: ['registered', 'declined', 'cancelled'], default: 'registered' },
+    // 'waitlisted' is a full request that is queued because the event was full:
+    // it holds no seats, but remembers exactly what the member asked for so a
+    // promotion can grant it in one go.
+    status: {
+      type: String,
+      enum: ['registered', 'declined', 'cancelled', 'waitlisted'],
+      default: 'registered',
+    },
 
     hasSpouse: { type: Boolean, default: false },
     spouseName: { type: String, default: '', trim: true },
@@ -44,7 +51,18 @@ const eventRegistrationSchema = new mongoose.Schema(
     tour: { type: tourChoiceSchema, default: null },
 
     // Seats held for the event itself (1, plus a spouse and/or attending children).
+    // On a waitlisted row this is the party size being waited for — the seats
+    // are not held until the member is promoted.
     seats: { type: Number, default: 1 },
+
+    // Queue order. Set when joining the waitlist and deliberately preserved
+    // across edits, so changing your party size does not cost you your place.
+    // The admin reorders the queue by rewriting these.
+    waitlistedAt: { type: Date, default: null },
+    // When the member was let in off the waitlist, and by whom (null = the
+    // system did it automatically after a cancellation).
+    promotedAt: { type: Date, default: null },
+    promotedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
 
     confirmationSentAt: { type: Date },
   },
@@ -52,5 +70,8 @@ const eventRegistrationSchema = new mongoose.Schema(
 );
 
 eventRegistrationSchema.index({ event: 1, user: 1 }, { unique: true });
+// Reading the queue in order is the hot path for both promotion and the admin
+// screen, so it gets its own index.
+eventRegistrationSchema.index({ event: 1, status: 1, waitlistedAt: 1 });
 
 module.exports = mongoose.model('EventRegistration', eventRegistrationSchema);

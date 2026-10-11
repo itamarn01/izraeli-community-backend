@@ -5,7 +5,15 @@ const Organization = require('../../models/Organization');
 const { eventInputSchema } = require('../../validation/schemas');
 const { createNotification } = require('../../services/notifications');
 const { formatEventDate } = require('../../services/eventEmail');
-const { releaseEventSeats, releaseSlotSeats } = require('../event.controller');
+const {
+  releaseEventSeats,
+  releaseSlotSeats,
+  admitFromWaitlist,
+  promoteFromWaitlist,
+  runAutoPromotion,
+  notifyPromoted,
+  waitlistPosition,
+} = require('../event.controller');
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -94,21 +102,44 @@ async function targetOrganizations(event) {
   return orgs.map((o) => o._id);
 }
 
-const EMPTY_STATS = { registrations: 0, attendees: 0, spouses: 0, children: 0, tourRegistrations: 0 };
+const EMPTY_STATS = {
+  registrations: 0, attendees: 0, spouses: 0, children: 0, tourRegistrations: 0, waitlisted: 0,
+};
 
 // Registration counts keyed by event id, for the list cards.
 async function countsByEvent(eventIds) {
   if (!eventIds.length) return new Map();
+  // One pass over both states: 'registered' drives the attendance numbers,
+  // 'waitlisted' only needs counting.
   const rows = await EventRegistration.aggregate([
-    { $match: { event: { $in: eventIds }, status: 'registered' } },
+    { $match: { event: { $in: eventIds }, status: { $in: ['registered', 'waitlisted'] } } },
     {
       $group: {
         _id: '$event',
-        registrations: { $sum: 1 },
-        attendees: { $sum: '$seats' },
-        spouses: { $sum: { $cond: ['$hasSpouse', 1, 0] } },
-        children: { $sum: { $size: { $ifNull: ['$childrenAttending', []] } } },
-        tourRegistrations: { $sum: { $cond: [{ $ifNull: ['$tour', false] }, 1, 0] } },
+        registrations: { $sum: { $cond: [{ $eq: ['$status', 'registered'] }, 1, 0] } },
+        attendees: { $sum: { $cond: [{ $eq: ['$status', 'registered'] }, '$seats', 0] } },
+        spouses: {
+          $sum: { $cond: [{ $and: [{ $eq: ['$status', 'registered'] }, '$hasSpouse'] }, 1, 0] },
+        },
+        children: {
+          $sum: {
+            $cond: [
+              { $eq: ['$status', 'registered'] },
+              { $size: { $ifNull: ['$childrenAttending', []] } },
+              0,
+            ],
+          },
+        },
+        tourRegistrations: {
+          $sum: {
+            $cond: [
+              { $and: [{ $eq: ['$status', 'registered'] }, { $ifNull: ['$tour', false] }] },
+              1,
+              0,
+            ],
+          },
+        },
+        waitlisted: { $sum: { $cond: [{ $eq: ['$status', 'waitlisted'] }, 1, 0] } },
       },
     },
   ]);
@@ -222,7 +253,18 @@ async function update(req, res, next) {
 
     const event = await Event.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true })
       .populate('organization', 'name code');
-    res.json({ event: await withStats(event) });
+
+    // Opening up more seats should let the queue in, the same as a cancellation.
+    const grewCapacity =
+      data.capacity !== undefined && (existing.capacity === 0 ? false : data.capacity > existing.capacity);
+    const turnedOnAutoPromote = data.waitlistAutoPromote === true && !existing.waitlistAutoPromote;
+    if (grewCapacity || turnedOnAutoPromote) {
+      await runAutoPromotion(event._id, {
+        apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
+      });
+    }
+
+    res.json({ event: await withStats(await Event.findById(event._id).populate('organization', 'name code')) });
   } catch (err) {
     next(err);
   }
@@ -243,6 +285,7 @@ async function remove(req, res, next) {
 
 function buildStats(event, registrations) {
   const active = registrations.filter((r) => r.status === 'registered');
+  const waiting = registrations.filter((r) => r.status === 'waitlisted');
   const slotCounts = new Map();
   for (const reg of active) {
     if (!reg.tour) continue;
@@ -282,6 +325,9 @@ function buildStats(event, registrations) {
     tourPeople: active.reduce((sum, r) => sum + (r.tour?.seats || 0), 0),
     declined: registrations.filter((r) => r.status === 'declined').length,
     cancelled: registrations.filter((r) => r.status === 'cancelled').length,
+    waitlisted: waiting.length,
+    // Seats the queue is waiting for — the honest "how far off are we" number.
+    waitlistSeats: waiting.reduce((sum, r) => sum + (r.seats || 0), 0),
     capacity: event.capacity,
     seatsLeft: event.capacity ? Math.max(0, event.capacity - event.seatsTaken) : null,
     slots,
@@ -299,7 +345,14 @@ async function listRegistrations(req, res, next) {
       .populate({ path: 'user', select: USER_FIELDS, populate: { path: 'organization', select: 'name code' } })
       .sort({ createdAt: -1 });
 
-    res.json({ event, registrations, stats: buildStats(event, registrations) });
+    // The queue is the one list whose order carries meaning, so it is sorted
+    // and numbered here rather than left to the browser to re-derive.
+    const waitlist = registrations
+      .filter((r) => r.status === 'waitlisted')
+      .sort((a, b) => new Date(a.waitlistedAt || 0) - new Date(b.waitlistedAt || 0))
+      .map((r, i) => ({ ...r.toObject({ versionKey: false }), position: i + 1 }));
+
+    res.json({ event, registrations, waitlist, stats: buildStats(event, registrations) });
   } catch (err) {
     next(err);
   }
@@ -326,8 +379,129 @@ async function removeRegistration(req, res, next) {
       }
     }
 
+    const freedSeats = registration.status === 'registered';
     await registration.deleteOne();
-    res.json({ ok: true });
+
+    // Removing an attendee hands their seats back, which is a promotion
+    // trigger exactly like a member cancelling on their own.
+    const admitted = freedSeats
+      ? await runAutoPromotion(event._id, {
+          apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
+        })
+      : [];
+
+    res.json({ ok: true, promoted: admitted.length });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Waitlist management ─────────────────────────────────────────────────
+
+/**
+ * Lets one specific person in, out of order if the admin says so.
+ *
+ * Refuses when their party does not fit, naming the shortfall, because the
+ * alternative — seating part of a family — is the thing this feature exists
+ * to prevent. `force: true` is the deliberate override, which seats them past
+ * the stated capacity rather than splitting them up.
+ */
+async function promoteOne(req, res, next) {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ message: 'האירוע לא נמצא' });
+
+    const registration = await EventRegistration.findOne({ _id: req.params.regId, event: event._id })
+      .populate('user', 'email profile.firstName profile.lastName');
+    if (!registration) return res.status(404).json({ message: 'ההרשמה לא נמצאה' });
+    if (registration.status !== 'waitlisted') {
+      return res.status(409).json({ message: 'הרשומה הזו אינה ברשימת ההמתנה' });
+    }
+
+    const force = req.body?.force === true;
+    const seats = registration.seats || 1;
+    const seatsLeft = event.capacity ? Math.max(0, event.capacity - event.seatsTaken) : null;
+
+    const admitted = await admitFromWaitlist(event, registration, { admin: req.admin, force });
+    if (!admitted) {
+      return res.status(409).json({
+        message: `אין מספיק מקומות פנויים — נדרשים ${seats} מקומות ופנויים ${seatsLeft ?? 0}. אפשר להגדיל את קיבולת האירוע, או לאשר הכנסה מעבר לקיבולת.`,
+        needed: seats,
+        seatsLeft: seatsLeft ?? 0,
+      });
+    }
+
+    const fresh = await Event.findById(event._id);
+    notifyPromoted([registration], fresh, {
+      apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
+    });
+
+    res.json({ registration, stats: (await withStats(fresh)).stats });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Runs the automatic rule on demand — "fill whatever seats are free now". */
+async function promoteNext(req, res, next) {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ message: 'האירוע לא נמצא' });
+
+    const admitted = await promoteFromWaitlist(event._id, { admin: req.admin });
+    const fresh = await Event.findById(event._id);
+    if (admitted.length) {
+      notifyPromoted(admitted, fresh, {
+        apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
+      });
+    }
+
+    res.json({ promoted: admitted.length, stats: (await withStats(fresh)).stats });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Moves someone up or down the queue by swapping their place with the
+ * neighbour — the order lives in `waitlistedAt`, so a swap is all it takes.
+ */
+async function reorderWaitlist(req, res, next) {
+  try {
+    const direction = req.body?.direction;
+    if (!['up', 'down'].includes(direction)) {
+      return res.status(400).json({ message: 'כיוון לא תקין' });
+    }
+
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ message: 'האירוע לא נמצא' });
+
+    const registration = await EventRegistration.findOne({ _id: req.params.regId, event: event._id });
+    if (!registration || registration.status !== 'waitlisted') {
+      return res.status(404).json({ message: 'הרשומה לא נמצאה ברשימת ההמתנה' });
+    }
+
+    const neighbour = await EventRegistration.findOne({
+      event: event._id,
+      status: 'waitlisted',
+      _id: { $ne: registration._id },
+      waitlistedAt: direction === 'up'
+        ? { $lt: registration.waitlistedAt }
+        : { $gt: registration.waitlistedAt },
+    }).sort({ waitlistedAt: direction === 'up' ? -1 : 1 });
+
+    if (!neighbour) {
+      return res.status(409).json({
+        message: direction === 'up' ? 'כבר ראשון בתור' : 'כבר אחרון בתור',
+      });
+    }
+
+    const mine = registration.waitlistedAt;
+    registration.waitlistedAt = neighbour.waitlistedAt;
+    neighbour.waitlistedAt = mine;
+    await Promise.all([registration.save(), neighbour.save()]);
+
+    res.json({ ok: true, position: await waitlistPosition(event._id, registration) });
   } catch (err) {
     next(err);
   }
@@ -403,6 +577,8 @@ async function exportRegistrations(req, res, next) {
       ['סה"כ מקומות שנתפסו בסיורים', stats.tourPeople],
       ['ביטולים', stats.cancelled],
       ['סימנו "לא מגיע"', stats.declined],
+      ['ברשימת המתנה', stats.waitlisted],
+      ['מקומות שרשימת ההמתנה מחכה להם', stats.waitlistSeats],
       ['קיבולת האירוע', event.capacity ? event.capacity : 'ללא הגבלה'],
       ['מקומות פנויים', stats.seatsLeft === null ? 'ללא הגבלה' : stats.seatsLeft],
       ['הופק בתאריך', new Date().toLocaleString('he-IL')],
@@ -521,6 +697,37 @@ async function exportRegistrations(req, res, next) {
       });
     });
 
+    // 3.8 — The waiting queue, in the order it will be let in
+    const waiting = registrations
+      .filter((r) => r.status === 'waitlisted')
+      .sort((a, b) => new Date(a.waitlistedAt || 0) - new Date(b.waitlistedAt || 0));
+    const waitlistSheet = addSheet(workbook, 'רשימת המתנה', [
+      { header: 'מקום בתור', key: 'position', width: 12 },
+      { header: 'שם מלא', key: 'member', width: 24 },
+      { header: 'גדוד / מסגרת', key: 'gedud', width: 18 },
+      { header: 'טלפון', key: 'phone', width: 16 },
+      { header: 'אימייל', key: 'email', width: 28 },
+      { header: 'בן/בת זוג', key: 'spouse', width: 20 },
+      { header: 'מס׳ ילדים', key: 'childrenCount', width: 12 },
+      { header: 'מס׳ מקומות מבוקשים', key: 'seats', width: 20 },
+      { header: 'סיור מבוקש', key: 'tour', width: 22 },
+      { header: 'נכנס לתור בתאריך', key: 'joined', width: 20 },
+    ]);
+    waiting.forEach((reg, i) => {
+      waitlistSheet.addRow({
+        position: i + 1,
+        member: fullName(reg.user),
+        gedud: reg.user?.profile?.gedud || '',
+        phone: reg.user?.profile?.phone || '',
+        email: reg.user?.email || '',
+        spouse: reg.hasSpouse ? reg.spouseName || 'כן' : '',
+        childrenCount: reg.childrenAttending?.length || 0,
+        seats: reg.seats,
+        tour: reg.tour ? `${reg.tour.tourTitle} · ${reg.tour.time}` : '',
+        joined: reg.waitlistedAt ? new Date(reg.waitlistedAt).toLocaleString('he-IL') : '',
+      });
+    });
+
     // 4 — Tour registrations
     const tours = addSheet(workbook, 'נרשמי סיורים', [
       { header: '#', key: 'idx', width: 6 },
@@ -629,4 +836,7 @@ module.exports = {
   listRegistrations,
   removeRegistration,
   exportRegistrations,
+  promoteOne,
+  promoteNext,
+  reorderWaitlist,
 };

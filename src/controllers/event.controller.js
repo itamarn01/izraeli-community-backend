@@ -96,7 +96,7 @@ async function releaseSlotSeats(eventId, tourId, slotId, seats) {
 
 // ── Serialization ───────────────────────────────────────────────────────
 // Members see remaining seats, never the raw counters.
-function serializeEvent(event, registration = null, user = null) {
+function serializeEvent(event, registration = null, user = null, extra = {}) {
   const obj = event.toObject ? event.toObject({ versionKey: false }) : { ...event };
   const closed = typeof event.isRegistrationClosed === 'function' ? event.isRegistrationClosed() : false;
 
@@ -127,9 +127,16 @@ function serializeEvent(event, registration = null, user = null) {
         tour: registration.tour,
         seats: registration.seats,
         createdAt: registration.createdAt,
+        waitlistedAt: registration.waitlistedAt || null,
+        // Filled in by the caller, which is where the count happens.
+        waitlistPosition: extra.waitlistPosition ?? null,
       }
     : null;
   obj.eligibleChildren = user ? eligibleChildren(event, user) : [];
+  obj.waitlistCount = extra.waitlistCount ?? 0;
+  // What the member can actually do right now: take a seat, or take a place
+  // in the queue. The popup reads this instead of re-deriving the rules.
+  obj.canJoinWaitlist = Boolean(obj.isFull && obj.waitlistEnabled && !closed);
 
   return obj;
 }
@@ -156,7 +163,31 @@ async function list(req, res, next) {
     });
     const byEvent = new Map(regs.map((r) => [String(r.event), r]));
 
-    res.json({ events: events.map((e) => serializeEvent(e, byEvent.get(String(e._id)) || null, req.user)) });
+    // Queue sizes for every event in one pass, rather than per card.
+    const counts = await EventRegistration.aggregate([
+      { $match: { event: { $in: events.map((e) => e._id) }, status: 'waitlisted' } },
+      { $group: { _id: '$event', count: { $sum: 1 } } },
+    ]);
+    const waitlistCounts = new Map(counts.map((c) => [String(c._id), c.count]));
+
+    // The member's own place, only for the events they are actually waiting on.
+    const positions = new Map();
+    await Promise.all(
+      regs
+        .filter((r) => r.status === 'waitlisted')
+        .map(async (r) => {
+          positions.set(String(r.event), await waitlistPosition(r.event, r));
+        })
+    );
+
+    res.json({
+      events: events.map((e) =>
+        serializeEvent(e, byEvent.get(String(e._id)) || null, req.user, {
+          waitlistCount: waitlistCounts.get(String(e._id)) || 0,
+          waitlistPosition: positions.get(String(e._id)) ?? null,
+        })
+      ),
+    });
   } catch (err) {
     next(err);
   }
@@ -167,7 +198,8 @@ async function getOne(req, res, next) {
     const event = await Event.findOne({ _id: req.params.id, ...visibilityFilter(req.user) });
     if (!event) return res.status(404).json({ message: 'האירוע לא נמצא' });
     const registration = await EventRegistration.findOne({ event: event._id, user: req.user._id });
-    res.json({ event: serializeEvent(event, registration, req.user) });
+    const info = await waitlistInfo(event, registration);
+    res.json({ event: serializeEvent(event, registration, req.user, info) });
   } catch (err) {
     next(err);
   }
@@ -278,7 +310,7 @@ async function applySeatChanges(event, previous, next) {
   const eventDelta = nextSeats - prevSeats;
 
   if (eventDelta > 0 && !(await claimEventSeats(event._id, eventDelta))) {
-    return 'לא נותרו מספיק מקומות פנויים לאירוע';
+    return { error: 'לא נותרו מספיק מקומות פנויים לאירוע', reason: 'event_full' };
   }
 
   const prevTour = previous?.status === 'registered' ? previous.tour : null;
@@ -294,7 +326,7 @@ async function applySeatChanges(event, previous, next) {
       const ok = await claimSlotSeats(event._id, nextTour.tourId, nextTour.slotId, delta, slot?.capacity ?? 0);
       if (!ok) {
         await rollbackEvent();
-        return 'אין מספיק מקומות פנויים בשעת הסיור שנבחרה';
+        return { error: 'אין מספיק מקומות פנויים בשעת הסיור שנבחרה', reason: 'slot_full' };
       }
     } else if (delta < 0) {
       await releaseSlotSeats(event._id, nextTour.tourId, nextTour.slotId, -delta);
@@ -311,7 +343,7 @@ async function applySeatChanges(event, previous, next) {
       );
       if (!ok) {
         await rollbackEvent();
-        return 'שעת הסיור שנבחרה התמלאה — יש לבחור שעה אחרת';
+        return { error: 'שעת הסיור שנבחרה התמלאה — יש לבחור שעה אחרת', reason: 'slot_full' };
       }
     }
     if (prevTour) {
@@ -321,6 +353,132 @@ async function applySeatChanges(event, previous, next) {
 
   if (eventDelta < 0) await releaseEventSeats(event._id, -eventDelta);
   return null;
+}
+
+// ── Waitlist ────────────────────────────────────────────────────────────
+// A waitlisted registration is a complete request that simply holds no seats
+// yet. Order is by `waitlistedAt`, which is why promotion and reordering both
+// work by reading or rewriting that one field.
+
+function waitlistQuery(eventId) {
+  return { event: eventId, status: 'waitlisted' };
+}
+
+/** Everyone waiting, head of the queue first. */
+function waitlistQueue(eventId, { withUser = false } = {}) {
+  const q = EventRegistration.find(waitlistQuery(eventId)).sort({ waitlistedAt: 1 });
+  return withUser ? q.populate('user', 'email profile.firstName profile.lastName') : q;
+}
+
+/** 1-based place in the queue, or null when the row is not waiting. */
+async function waitlistPosition(eventId, registration) {
+  if (registration?.status !== 'waitlisted' || !registration.waitlistedAt) return null;
+  const ahead = await EventRegistration.countDocuments({
+    ...waitlistQuery(eventId),
+    waitlistedAt: { $lt: registration.waitlistedAt },
+  });
+  return ahead + 1;
+}
+
+/** The count + this member's place, for the member-facing payload. */
+async function waitlistInfo(event, registration) {
+  const [waitlistCount, position] = await Promise.all([
+    EventRegistration.countDocuments(waitlistQuery(event._id)),
+    waitlistPosition(event._id, registration),
+  ]);
+  return { waitlistCount, waitlistPosition: position };
+}
+
+/**
+ * Moves one waiting member into the event.
+ *
+ * All of their seats are taken at once or none are: a member who asked for
+ * three never comes in alone with their family left outside. Their tour
+ * preference is best-effort — if that hour filled up while they waited they
+ * are still admitted to the event itself, just without the tour, because the
+ * seat is the part they were queuing for.
+ *
+ * @param {boolean} force  let an admin seat them past the stated capacity
+ * @returns {boolean} whether they were admitted
+ */
+async function admitFromWaitlist(event, registration, { admin = null, force = false } = {}) {
+  const seats = registration.seats || 1;
+
+  if (force) {
+    await Event.updateOne({ _id: event._id }, { $inc: { seatsTaken: seats } });
+  } else if (!(await claimEventSeats(event._id, seats))) {
+    return false;
+  }
+
+  let tour = registration.tour || null;
+  if (tour) {
+    const slot = event.tours.id(tour.tourId)?.slots.id(tour.slotId);
+    const claimed =
+      slot && (await claimSlotSeats(event._id, tour.tourId, tour.slotId, tour.seats || 1, slot.capacity));
+    if (!claimed) tour = null;
+  }
+
+  registration.status = 'registered';
+  registration.tour = tour;
+  registration.promotedAt = new Date();
+  registration.promotedBy = admin?._id || null;
+  await registration.save();
+  return true;
+}
+
+/**
+ * Admits people from the head of the queue for as long as the free seats
+ * allow. The order is strict: when the next party does not fit, the run stops
+ * rather than skipping over them to a smaller party further back — that would
+ * be jumping the line. The admin can still promote out of order by hand.
+ *
+ * @returns {Array} the registrations that were admitted, in order
+ */
+async function promoteFromWaitlist(eventId, { limit = Infinity, admin = null } = {}) {
+  const admitted = [];
+  const event = await Event.findById(eventId);
+  if (!event || !event.waitlistEnabled || event.isRegistrationClosed()) return admitted;
+
+  const queue = await waitlistQueue(eventId, { withUser: true });
+  for (const registration of queue) {
+    if (admitted.length >= limit) break;
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await admitFromWaitlist(event, registration, { admin }))) break;
+    admitted.push(registration);
+  }
+  return admitted;
+}
+
+/** Tells everyone just admitted that they are in. Never blocks the caller. */
+function notifyPromoted(admitted, event, { appUrl, apiUrl } = {}) {
+  for (const registration of admitted) {
+    const user = registration.user;
+    if (!user?.email) continue;
+    sendEventRegistrationEmail({
+      to: user.email,
+      userName: [user.profile?.firstName, user.profile?.lastName].filter(Boolean).join(' '),
+      event,
+      registration,
+      kind: 'promoted',
+      appUrl: appUrl || process.env.CLIENT_URL || (process.env.CLIENT_ORIGIN || '').split(',')[0],
+      apiUrl,
+    }).catch((err) => console.error('Waitlist promotion email failed:', err.message));
+  }
+}
+
+/**
+ * Called wherever seats come back (a cancellation, an admin removal, a party
+ * shrinking, a capacity increase). Respects the event's auto-promote switch.
+ */
+async function runAutoPromotion(eventId, { appUrl, apiUrl } = {}) {
+  const event = await Event.findById(eventId);
+  if (!event || !event.waitlistEnabled || !event.waitlistAutoPromote) return [];
+  const admitted = await promoteFromWaitlist(eventId);
+  if (admitted.length) {
+    const fresh = await Event.findById(eventId);
+    notifyPromoted(admitted, fresh, { appUrl, apiUrl });
+  }
+  return admitted;
 }
 
 async function saveRegistration(req, res, next, { isUpdate }) {
@@ -347,19 +505,41 @@ async function saveRegistration(req, res, next, { isUpdate }) {
     }
 
     const nextState = { seats: (hasSpouse ? 2 : 1) + children.length, tour: choice };
-    const seatError = await applySeatChanges(event, previous, nextState);
-    if (seatError) return res.status(409).json({ message: seatError });
+
+    // Someone already in the queue stays in the queue, even if a seat happens
+    // to be free this second: otherwise editing your own details would jump
+    // you over everyone ahead of you. Only a promotion moves a waiting member.
+    const stayOnWaitlist = previous?.status === 'waitlisted';
+    let waitlisted = stayOnWaitlist;
+
+    if (!stayOnWaitlist) {
+      const seatResult = await applySeatChanges(event, previous, nextState);
+      if (seatResult) {
+        // A full event is something the queue can absorb; a full tour hour is
+        // not — that one is the member's own choice to change.
+        const canQueue =
+          seatResult.reason === 'event_full' &&
+          event.waitlistEnabled &&
+          previous?.status !== 'registered';
+        if (!canQueue) return res.status(409).json({ message: seatResult.error });
+        waitlisted = true;
+      }
+    }
 
     const payload = {
       event: event._id,
       user: req.user._id,
       organization: req.user.organization?._id || req.user.organization,
-      status: 'registered',
+      status: waitlisted ? 'waitlisted' : 'registered',
       hasSpouse,
       spouseName: hasSpouse ? data.spouseName.trim() : '',
       childrenAttending: children,
+      // On a queued row the tour is a preference, claimed only on promotion.
       tour: choice,
       seats: nextState.seats,
+      // Keeping the original timestamp is what makes an edit free: changing
+      // your party size must not cost you your place in line.
+      waitlistedAt: waitlisted ? previous?.waitlistedAt || new Date() : null,
     };
 
     let registration;
@@ -375,10 +555,20 @@ async function saveRegistration(req, res, next, { isUpdate }) {
       throw err;
     }
 
+    // A member who shrank their party just freed seats for the queue.
+    if (!waitlisted && (previous?.seats || 0) > nextState.seats) {
+      await runAutoPromotion(event._id, {
+        apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
+      });
+    }
+
     const fresh = await Event.findById(event._id);
+    const info = await waitlistInfo(fresh, registration);
     res.status(isUpdate ? 200 : 201).json({
-      event: serializeEvent(fresh, registration, req.user),
+      event: serializeEvent(fresh, registration, req.user, info),
       registration,
+      waitlisted,
+      waitlistPosition: info.waitlistPosition,
     });
 
     // Email is best-effort and must not fail the booking.
@@ -388,7 +578,8 @@ async function saveRegistration(req, res, next, { isUpdate }) {
       userName: [user.profile?.firstName, user.profile?.lastName].filter(Boolean).join(' '),
       event: fresh,
       registration,
-      kind: isUpdate ? 'updated' : 'created',
+      kind: waitlisted ? 'waitlisted' : isUpdate ? 'updated' : 'created',
+      waitlistPosition: info.waitlistPosition,
       appUrl: process.env.CLIENT_URL || (process.env.CLIENT_ORIGIN || '').split(',')[0],
       apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
     })
@@ -410,11 +601,14 @@ async function cancelRegistration(req, res, next) {
     if (!event) return res.status(404).json({ message: 'האירוע לא נמצא' });
 
     const registration = await EventRegistration.findOne({ event: event._id, user: req.user._id });
-    if (!registration || registration.status !== 'registered') {
+    if (!registration || !['registered', 'waitlisted'].includes(registration.status)) {
       return res.status(404).json({ message: 'לא נמצאה הרשמה פעילה' });
     }
 
-    await applySeatChanges(event, registration, { seats: 0, tour: null });
+    // Leaving the queue frees nothing, so only a real registration triggers
+    // the seat release and the promotion that follows it.
+    const heldSeats = registration.status === 'registered';
+    if (heldSeats) await applySeatChanges(event, registration, { seats: 0, tour: null });
 
     registration.status = 'cancelled';
     registration.tour = null;
@@ -422,11 +616,21 @@ async function cancelRegistration(req, res, next) {
     registration.hasSpouse = false;
     registration.spouseName = '';
     registration.childrenAttending = [];
+    registration.waitlistedAt = null;
     await registration.save();
 
-    const fresh = await Event.findById(event._id);
-    res.json({ event: serializeEvent(fresh, registration, req.user) });
+    // The seats are back — this is the moment the next family gets in.
+    if (heldSeats) {
+      await runAutoPromotion(event._id, {
+        apiUrl: process.env.API_URL || `${req.protocol}://${req.get('host')}`,
+      });
+    }
 
+    const fresh = await Event.findById(event._id);
+    const info = await waitlistInfo(fresh, registration);
+    res.json({ event: serializeEvent(fresh, registration, req.user, info) });
+
+    if (!heldSeats) return; // left the queue: nothing was booked to confirm
     const user = await User.findById(req.user._id).select('email profile');
     sendEventRegistrationEmail({
       to: user.email,
@@ -518,4 +722,12 @@ module.exports = {
   releaseEventSeats,
   claimSlotSeats,
   releaseSlotSeats,
+  // Waitlist — shared with the admin controller so both obey the same rules.
+  waitlistQueue,
+  waitlistPosition,
+  waitlistInfo,
+  admitFromWaitlist,
+  promoteFromWaitlist,
+  runAutoPromotion,
+  notifyPromoted,
 };

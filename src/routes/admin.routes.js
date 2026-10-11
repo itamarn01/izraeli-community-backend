@@ -107,6 +107,9 @@ router.get('/events/:id/export', events.exportRegistrations);
 router.get('/events/:id', events.getOne);
 router.post('/events', events.create);
 router.patch('/events/:id', events.update);
+router.post('/events/:id/waitlist/promote-next', events.promoteNext);
+router.post('/events/:id/registrations/:regId/promote', events.promoteOne);
+router.post('/events/:id/registrations/:regId/waitlist-move', events.reorderWaitlist);
 router.delete('/events/:id/registrations/:regId', events.removeRegistration);
 router.delete('/events/:id', events.remove);
 
