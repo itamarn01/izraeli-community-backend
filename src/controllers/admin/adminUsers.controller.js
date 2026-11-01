@@ -6,6 +6,7 @@ const Job = require('../../models/Job');
 const DeletedAccount = require('../../models/DeletedAccount');
 const { sendAdminMessage, sendPasswordResetByAdmin } = require('../../services/email');
 const { sanitizeEmailHtml, htmlToText } = require('../../utils/sanitizeHtml');
+const { preserveChildIds } = require('../user.controller');
 
 const messageSchema = z.object({
   subject: z.string().trim().min(1).max(200),
@@ -217,6 +218,11 @@ async function update(req, res, next) {
     if (data.organization) user.organization = data.organization;
     if (data.profile) {
       const current = user.profile?.toObject ? user.profile.toObject() : user.profile || {};
+      // Same rule as the member's own profile screen: a child keeps the id
+      // that event registrations point at, instead of being re-minted.
+      if (data.profile.children) {
+        data.profile.children = preserveChildIds(user.profile?.children, data.profile.children);
+      }
       user.profile = { ...current, ...data.profile };
     }
     await user.save();

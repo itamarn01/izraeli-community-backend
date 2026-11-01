@@ -61,6 +61,11 @@ const spouseEmailVerifySchema = z.object({
 });
 
 const childSchema = z.object({
+  // Sent back by the profile screen for a child that already exists. The
+  // subdocument id is a reference — an event registration stores it to
+  // remember which child is coming — so an edit has to carry it through
+  // rather than let the server mint a new one.
+  _id: z.string().optional(),
   name: z.string().trim().min(1, 'נדרש שם הילד/ה'),
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'תאריך לידה לא תקין' }) }),
 });

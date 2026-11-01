@@ -10,10 +10,47 @@ const {
 } = require('../validation/schemas');
 const { uploadImageBuffer } = require('../services/cloudinary');
 
+/**
+ * Reconciles an incoming children array against the one on file, keeping each
+ * child's existing `_id`.
+ *
+ * Assigning a fresh array to `profile.children` makes Mongoose mint new
+ * subdocument ids for every entry, which quietly breaks anything holding a
+ * reference to one — an event registration stores `childId` to remember who is
+ * attending. So a saved child keeps its id: matched by the `_id` the client
+ * sent, and failing that by an exact name + date-of-birth match, so that
+ * clients which do not send ids yet still stop rotating them.
+ */
+function preserveChildIds(existing = [], incoming = []) {
+  const dayOf = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+  const identity = (c) => `${String(c.name || '').trim()}|${dayOf(c.dateOfBirth)}`;
+  const byId = new Map(existing.map((c) => [String(c._id), c]));
+  // One child on file can only stand in for one incoming child, so that
+  // genuine duplicates do not both claim the same id.
+  const claimed = new Set();
+
+  return incoming.map((child) => {
+    const sentId = child._id ? String(child._id) : null;
+    let match = sentId && !claimed.has(sentId) ? byId.get(sentId) : null;
+    if (!match) {
+      match = existing.find((c) => !claimed.has(String(c._id)) && identity(c) === identity(child)) || null;
+    }
+    if (match) claimed.add(String(match._id));
+    return {
+      ...(match ? { _id: match._id } : {}),
+      name: child.name,
+      dateOfBirth: child.dateOfBirth,
+    };
+  });
+}
+
 async function updateProfile(req, res, next) {
   try {
     const data = updateProfileSchema.parse(req.body);
     const user = req.user;
+    if (data.children) {
+      data.children = preserveChildIds(user.profile?.children, data.children);
+    }
     user.profile = { ...user.profile.toObject(), ...data };
     await user.save();
     res.json({ user: user.toSafeJSON() });
@@ -221,6 +258,7 @@ async function uploadAvatar(req, res, next) {
 }
 
 module.exports = {
+  preserveChildIds,
   updateProfile, requestEmailChange, verifyNewEmail,
   requestSpouseEmail, verifySpouseEmail, removeSpouseEmail,
   uploadCv, uploadAvatar, changePassword, deleteAccount, acceptTerms,

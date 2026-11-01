@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Organization = require('../models/Organization');
 const { signToken, generateOtp } = require('../utils/token');
 const { sendOtpEmail } = require('../services/email');
+const { preserveChildIds } = require('./user.controller');
 const {
   orgCodeSchema,
   registerSchema,
@@ -114,6 +115,9 @@ async function submitQuestionnaire(req, res, next) {
     const data = questionnaireSchema.parse(req.body);
     const user = req.user;
     if (!user.isEmailVerified) return res.status(403).json({ message: 'יש לאמת את המייל לפני מילוי השאלון' });
+    // Same rule as the profile screen: a child already on file keeps its id,
+    // so references to it survive a re-submitted questionnaire.
+    data.children = preserveChildIds(user.profile?.children, data.children);
     user.profile = data;
     user.isProfileComplete = true;
     await user.save();
